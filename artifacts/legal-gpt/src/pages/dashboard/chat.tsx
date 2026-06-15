@@ -83,9 +83,14 @@ export default function ChatPage() {
 
   const processedDocs = documents.filter(d => d.status === 'processed');
 
+  // Filter history to only show messages for the currently selected document
+  const filteredHistory = documentId
+    ? history.filter(m => m.documentId === documentId)
+    : [];
+
   const quickPrompts = [
     "Summarize this document",
-    "Extract important clauses",
+    "What are the key clauses?",
     "Find risk points",
     "Explain in simple language",
   ];
@@ -158,17 +163,21 @@ export default function ChatPage() {
               <div className="h-full flex items-center justify-center text-muted-foreground">
                 <Loader2 className="w-6 h-6 animate-spin" />
               </div>
-            ) : history.length === 0 ? (
+            ) : filteredHistory.length === 0 ? (
               <div className="h-full flex flex-col items-center justify-center text-center p-8 text-muted-foreground">
                 <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
                   <Bot className="w-8 h-8 text-primary" />
                 </div>
                 <h3 className="font-semibold text-foreground text-lg">How can I help you today?</h3>
-                <p className="max-w-sm mt-2 text-sm">Select a document context from the sidebar and ask me anything about it. I can summarize, explain complex terms, or find specific clauses.</p>
+                <p className="max-w-sm mt-2 text-sm">
+                  {documentId
+                    ? "Ask me anything about this document — summaries, clauses, risks, or plain-language explanations."
+                    : "Select a document context from the sidebar and ask me anything about it."}
+                </p>
               </div>
             ) : (
               <div className="space-y-6">
-                {history.map((msg, i) => (
+                {filteredHistory.map((msg, i) => (
                   <div key={i} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
                     <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
                       msg.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-accent/20 text-accent-foreground border border-accent/30'

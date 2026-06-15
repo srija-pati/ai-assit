@@ -46,7 +46,7 @@ export default function EmailPage() {
     if (!recipient || !subject || !body) return;
 
     sendEmailMutation.mutate(
-      { data: { recipientEmail: recipient, subject, body, draftId } },
+      { data: { recipientEmail: recipient, subject, body, ...(draftId !== null ? { draftId } : {}) } },
       {
         onSuccess: () => {
           toast({ title: "Email Sent", description: "Your formal letter has been sent successfully." });

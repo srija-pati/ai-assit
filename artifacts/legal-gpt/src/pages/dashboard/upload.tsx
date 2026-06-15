@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { UploadCloud, FileText, Trash2, MessageSquare, FileSearch, Loader2 } from "lucide-react";
+import { UploadCloud, FileText, Trash2, MessageSquare, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 
 export default function UploadPage() {
@@ -181,18 +181,11 @@ export default function UploadPage() {
                       </div>
                       <div className="flex flex-wrap items-center gap-2 shrink-0">
                         {doc.status === 'processed' && (
-                          <>
-                            <Button variant="outline" size="sm" className="h-8 text-xs" asChild>
-                              <Link href={`/dashboard/chat?docId=${doc.id}`}>
-                                <MessageSquare className="w-3.5 h-3.5 mr-1" /> Chat
-                              </Link>
-                            </Button>
-                            <Button variant="outline" size="sm" className="h-8 text-xs" asChild>
-                              <Link href={`/dashboard/clauses?docId=${doc.id}`}>
-                                <FileSearch className="w-3.5 h-3.5 mr-1" /> Extract
-                              </Link>
-                            </Button>
-                          </>
+                          <Button variant="outline" size="sm" className="h-8 text-xs" asChild>
+                            <Link href={`/dashboard/chat?docId=${doc.id}`}>
+                              <MessageSquare className="w-3.5 h-3.5 mr-1" /> Chat
+                            </Link>
+                          </Button>
                         )}
                         <Button 
                           variant="ghost" 

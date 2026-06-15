@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Send, CheckCircle2, Clock, XCircle, Loader2 } from "lucide-react";
+import { Mail, Send, CheckCircle2, Clock, XCircle, Loader2, ExternalLink } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 
 export default function EmailPage() {
@@ -29,8 +29,8 @@ export default function EmailPage() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [draftId, setDraftId] = useState<number | null>(null);
+  const [lastPreviewUrl, setLastPreviewUrl] = useState<string | null>(null);
 
-  // Pre-fill email body when a draft is selected
   const handleDraftSelect = (val: string) => {
     const id = parseInt(val);
     setDraftId(id);
@@ -48,15 +48,24 @@ export default function EmailPage() {
     sendEmailMutation.mutate(
       { data: { recipientEmail: recipient, subject, body, ...(draftId !== null ? { draftId } : {}) } },
       {
-        onSuccess: () => {
-          toast({ title: "Email Sent", description: "Your formal letter has been sent successfully." });
+        onSuccess: (data) => {
+          // previewUrl may be returned from Ethereal SMTP
+          const preview = (data as any).previewUrl as string | null;
+          setLastPreviewUrl(preview ?? null);
+
+          toast({
+            title: "Email Sent ✓",
+            description: preview
+              ? "Email delivered via demo SMTP. Click 'View in Inbox' to see it."
+              : "Email recorded in sent communications.",
+          });
           setRecipient("");
           setSubject("");
           setBody("");
           setDraftId(null);
           queryClient.invalidateQueries({ queryKey: getListEmailsQueryKey() });
         },
-        onError: () => {
+        onError: (err) => {
           toast({ title: "Failed to send", description: "An error occurred while sending the email.", variant: "destructive" });
         }
       }
@@ -79,11 +88,24 @@ export default function EmailPage() {
         <p className="text-muted-foreground">Email your generated drafts or write custom letters directly to recipients.</p>
       </div>
 
+      {lastPreviewUrl && (
+        <div className="flex items-center gap-3 p-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+          <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">Email sent successfully via demo SMTP</p>
+            <p className="text-xs text-muted-foreground mt-0.5">This is a demo environment — emails are captured at Ethereal (test inbox), not delivered to real inboxes.</p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => window.open(lastPreviewUrl, '_blank')} className="shrink-0">
+            <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> View in Inbox
+          </Button>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <Card>
           <CardHeader>
             <CardTitle>Compose Email</CardTitle>
-            <CardDescription>Send a legally sound communication.</CardDescription>
+            <CardDescription>Send a legally sound communication to your recipient.</CardDescription>
           </CardHeader>
           <form onSubmit={handleSend}>
             <CardContent className="space-y-4">
@@ -132,10 +154,13 @@ export default function EmailPage() {
                   required 
                 />
               </div>
+
+              <p className="text-xs text-muted-foreground bg-muted/40 rounded p-3">
+                <strong>Demo mode:</strong> Emails are sent via Ethereal test SMTP. After sending, click "View in Inbox" to see the captured email. No real delivery occurs.
+              </p>
             </CardContent>
-            <CardFooter className="border-t bg-muted/10 py-4 flex justify-between">
-              <Button type="button" variant="outline">Preview</Button>
-              <Button type="submit" disabled={sendEmailMutation.isPending}>
+            <CardFooter className="border-t bg-muted/10 py-4 flex justify-end">
+              <Button type="submit" disabled={sendEmailMutation.isPending || !recipient || !subject || !body}>
                 {sendEmailMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
                 Send Email
               </Button>

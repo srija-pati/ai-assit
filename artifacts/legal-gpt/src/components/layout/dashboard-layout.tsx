@@ -2,9 +2,10 @@ import { useAuth } from "@/contexts/auth-context";
 import { useLocation } from "wouter";
 import { ReactNode, useEffect } from "react";
 import { SidebarProvider, Sidebar, SidebarHeader, SidebarContent, SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarFooter } from "@/components/ui/sidebar";
-import { LayoutDashboard, Upload, MessageSquare, FileSearch, FileText, Users, Mail, History, Shield, Settings, LogOut, Moon, Sun } from "lucide-react";
+import { LayoutDashboard, Upload, MessageSquare, FileText, Users, Mail, History, Shield, Settings, LogOut, Moon, Sun } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { useLogout } from "@workspace/api-client-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 export function DashboardLayout({ children }: { children: ReactNode }) {
   const { isAuthenticated, isLoading, user, logout: localLogout } = useAuth();
@@ -24,14 +25,8 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
 
   const handleLogout = () => {
     logout.mutate(undefined, {
-      onSuccess: () => {
-        localLogout();
-        setLocation("/login");
-      },
-      onError: () => {
-        localLogout();
-        setLocation("/login");
-      }
+      onSuccess: () => { localLogout(); setLocation("/login"); },
+      onError: () => { localLogout(); setLocation("/login"); }
     });
   };
 
@@ -39,11 +34,16 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
     { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { title: "Upload Documents", href: "/dashboard/upload", icon: Upload },
     { title: "AI Chat", href: "/dashboard/chat", icon: MessageSquare },
-    { title: "Clause Extractor", href: "/dashboard/clauses", icon: FileSearch },
     { title: "Generate Document", href: "/dashboard/generate", icon: FileText },
     { title: "Advocate Search", href: "/dashboard/advocates", icon: Users },
     { title: "Send Letter", href: "/dashboard/email", icon: Mail },
+    { title: "History", href: "/dashboard/history", icon: History },
+    { title: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
+
+  const initials = user?.name
+    ? user.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase()
+    : "U";
 
   return (
     <SidebarProvider>
@@ -55,10 +55,10 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
               <span className="font-serif font-bold text-xl tracking-tight text-primary dark:text-white">LegalGPT</span>
             </div>
           </SidebarHeader>
-          
+
           <SidebarContent>
             <SidebarGroup>
-              <SidebarGroupLabel>Menu</SidebarGroupLabel>
+              <SidebarGroupLabel>Navigation</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {navItems.map((item) => (
@@ -71,8 +71,8 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
                       </SidebarMenuButton>
                     </SidebarMenuItem>
                   ))}
-                  
-                  {user?.role === 'admin' && (
+
+                  {user?.role === "admin" && (
                     <SidebarMenuItem>
                       <SidebarMenuButton asChild>
                         <a href="/dashboard/admin" className="flex items-center gap-3 text-accent">
@@ -85,21 +85,13 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>
-            
+
             <SidebarGroup className="mt-auto">
               <SidebarGroupContent>
                 <SidebarMenu>
                   <SidebarMenuItem>
-                    <SidebarMenuButton asChild>
-                      <a href="/dashboard/settings" className="flex items-center gap-3">
-                        <Settings className="w-4 h-4" />
-                        <span>Settings</span>
-                      </a>
-                    </SidebarMenuButton>
-                  </SidebarMenuItem>
-                  <SidebarMenuItem>
-                    <SidebarMenuButton onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="flex items-center gap-3">
-                      {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                    <SidebarMenuButton onClick={() => setTheme(theme === "dark" ? "light" : "dark")} className="flex items-center gap-3">
+                      {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                       <span>Toggle Theme</span>
                     </SidebarMenuButton>
                   </SidebarMenuItem>
@@ -113,9 +105,17 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
               </SidebarGroupContent>
             </SidebarGroup>
           </SidebarContent>
-          
-          <SidebarFooter className="border-t p-4 text-xs text-muted-foreground text-center">
-            {user?.name} ({user?.role})
+
+          <SidebarFooter className="border-t p-4">
+            <div className="flex items-center gap-3">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="bg-primary/10 text-primary text-xs font-bold">{initials}</AvatarFallback>
+              </Avatar>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-foreground truncate">{user?.name}</p>
+                <p className="text-xs text-muted-foreground truncate capitalize">{user?.role}</p>
+              </div>
+            </div>
           </SidebarFooter>
         </Sidebar>
 

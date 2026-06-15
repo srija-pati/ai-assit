@@ -54,14 +54,9 @@ export default function LoginPage() {
     });
   };
 
-  const autofillDemo = (type: 'admin' | 'user') => {
-    if (type === 'admin') {
-      setEmail('admin@legalgpt.com');
-      setPassword('admin123');
-    } else {
-      setEmail('user@legalgpt.com');
-      setPassword('user123');
-    }
+  const autofillAdmin = () => {
+    setEmail('admin@legalgpt.com');
+    setPassword('admin123');
   };
 
   return (
@@ -114,10 +109,12 @@ export default function LoginPage() {
                   <Alert className="bg-muted/50 border-border">
                     <AlertCircle className="h-4 w-4 text-accent" />
                     <AlertDescription className="text-xs text-muted-foreground flex flex-col gap-2 mt-1">
-                      <span>Demo credentials available:</span>
-                      <div className="flex gap-2">
-                        <Button type="button" variant="outline" size="sm" onClick={() => autofillDemo('admin')} className="h-7 text-xs">Admin</Button>
-                        <Button type="button" variant="outline" size="sm" onClick={() => autofillDemo('user')} className="h-7 text-xs">User</Button>
+                      <span>Demo admin account:</span>
+                      <div className="flex gap-2 items-center">
+                        <Button type="button" variant="outline" size="sm" onClick={autofillAdmin} className="h-7 text-xs">
+                          Fill Admin Credentials
+                        </Button>
+                        <span className="text-muted-foreground">or sign up for a new account</span>
                       </div>
                     </AlertDescription>
                   </Alert>

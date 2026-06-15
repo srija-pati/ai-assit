@@ -12,7 +12,6 @@ import LoginPage from "@/pages/login";
 import DashboardHome from "@/pages/dashboard/index";
 import UploadPage from "@/pages/dashboard/upload";
 import ChatPage from "@/pages/dashboard/chat";
-import ClausesPage from "@/pages/dashboard/clauses";
 import GeneratePage from "@/pages/dashboard/generate";
 import AdvocatesPage from "@/pages/dashboard/advocates";
 import EmailPage from "@/pages/dashboard/email";
@@ -29,7 +28,6 @@ function DashboardRoutes() {
         <Route path="/dashboard" component={DashboardHome} />
         <Route path="/dashboard/upload" component={UploadPage} />
         <Route path="/dashboard/chat" component={ChatPage} />
-        <Route path="/dashboard/clauses" component={ClausesPage} />
         <Route path="/dashboard/generate" component={GeneratePage} />
         <Route path="/dashboard/advocates" component={AdvocatesPage} />
         <Route path="/dashboard/email" component={EmailPage} />

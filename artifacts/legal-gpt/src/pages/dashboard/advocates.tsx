@@ -1,30 +1,32 @@
 import { useState } from "react";
 import { useListAdvocates, getListAdvocatesQueryKey } from "@workspace/api-client-react";
-import { Card, CardContent, CardHeader, CardTitle, CardFooter } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, MapPin, Briefcase, Star, Phone, Mail, CheckCircle } from "lucide-react";
+import { Search, MapPin, Briefcase, Star, Phone, Mail } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+const SPECIALIZATIONS = [
+  "Civil Law", "Criminal Law", "Corporate Law", "Family Law",
+  "Property Law", "Cyber Law", "Consumer Law", "Employment Law"
+];
 
 export default function AdvocatesPage() {
   const [location, setLocation] = useState("");
-  const [specialization, setSpecialization] = useState("");
-  const [minRating, setMinRating] = useState("");
+  const [specialization, setSpecialization] = useState("all");
+  const [minRating, setMinRating] = useState("all");
 
-  const { data: advocates = [], isLoading } = useListAdvocates({ 
-    location, 
-    specialization, 
-    minRating: minRating ? parseFloat(minRating) : undefined
-  }, { 
-    query: { queryKey: getListAdvocatesQueryKey({ location, specialization, minRating: minRating ? parseFloat(minRating) : undefined }) } 
+  const filterParams = {
+    location: location || undefined,
+    specialization: specialization !== "all" ? specialization : undefined,
+    minRating: minRating !== "all" ? parseFloat(minRating) : undefined,
+  };
+
+  const { data: advocates = [], isLoading } = useListAdvocates(filterParams, {
+    query: { queryKey: getListAdvocatesQueryKey(filterParams) }
   });
-
-  const specializations = [
-    "Civil Law", "Criminal Law", "Corporate Law", "Family Law", 
-    "Property Law", "Cyber Law", "Consumer Law", "Employment Law"
-  ];
 
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
@@ -40,24 +42,25 @@ export default function AdvocatesPage() {
               <label className="text-xs font-medium text-muted-foreground">Location</label>
               <div className="relative">
                 <MapPin className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input 
-                  placeholder="City or state..." 
+                <Input
+                  placeholder="City..."
                   className="pl-9"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
+                  data-testid="input-location"
                 />
               </div>
             </div>
-            
+
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Specialization</label>
               <Select value={specialization} onValueChange={setSpecialization}>
-                <SelectTrigger>
+                <SelectTrigger data-testid="select-specialization">
                   <SelectValue placeholder="All Practices" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Practices</SelectItem>
-                  {specializations.map(spec => (
+                  <SelectItem value="all">All Practices</SelectItem>
+                  {SPECIALIZATIONS.map(spec => (
                     <SelectItem key={spec} value={spec}>{spec}</SelectItem>
                   ))}
                 </SelectContent>
@@ -67,11 +70,11 @@ export default function AdvocatesPage() {
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Minimum Rating</label>
               <Select value={minRating} onValueChange={setMinRating}>
-                <SelectTrigger>
+                <SelectTrigger data-testid="select-rating">
                   <SelectValue placeholder="Any rating" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Any rating</SelectItem>
+                  <SelectItem value="all">Any rating</SelectItem>
                   <SelectItem value="4.0">4.0+ Stars</SelectItem>
                   <SelectItem value="4.5">4.5+ Stars</SelectItem>
                   <SelectItem value="4.8">4.8+ Stars</SelectItem>
@@ -80,7 +83,7 @@ export default function AdvocatesPage() {
             </div>
 
             <div className="flex items-end">
-              <Button className="w-full" variant="default">
+              <Button className="w-full" data-testid="button-search">
                 <Search className="w-4 h-4 mr-2" /> Search
               </Button>
             </div>
@@ -92,7 +95,7 @@ export default function AdvocatesPage() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3, 4, 5, 6].map(i => (
             <Card key={i} className="animate-pulse">
-              <CardContent className="p-6 h-48 bg-muted/20"></CardContent>
+              <CardContent className="p-6 h-48 bg-muted/20" />
             </Card>
           ))}
         </div>
@@ -105,14 +108,14 @@ export default function AdvocatesPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {advocates.map((advocate) => (
-            <Card key={advocate.id} className="overflow-hidden hover:shadow-md transition-shadow group">
+            <Card key={advocate.id} data-testid={`card-advocate-${advocate.id}`} className="overflow-hidden hover:shadow-md transition-shadow group">
               <CardContent className="p-0">
                 <div className="p-6">
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex gap-4">
                       <Avatar className="h-14 w-14 border-2 border-background shadow-sm">
                         <AvatarFallback className="bg-primary/10 text-primary font-bold font-serif text-lg">
-                          {advocate.name.split(' ').map(n => n[0]).join('').substring(0, 2)}
+                          {advocate.name.split(' ').filter(Boolean).map(n => n[0]).join('').substring(0, 2)}
                         </AvatarFallback>
                       </Avatar>
                       <div>
@@ -126,7 +129,7 @@ export default function AdvocatesPage() {
                       </Badge>
                     )}
                   </div>
-                  
+
                   <div className="space-y-2 mt-4 text-sm text-muted-foreground">
                     <div className="flex items-center gap-2">
                       <MapPin className="w-4 h-4 shrink-0" />
@@ -144,17 +147,30 @@ export default function AdvocatesPage() {
                   </div>
 
                   {advocate.bio && (
-                    <p className="text-sm mt-4 line-clamp-2 text-muted-foreground">
-                      {advocate.bio}
-                    </p>
+                    <p className="text-sm mt-4 line-clamp-2 text-muted-foreground">{advocate.bio}</p>
+                  )}
+
+                  {(advocate.phone || advocate.email) && (
+                    <div className="mt-4 space-y-1 text-xs text-muted-foreground">
+                      {advocate.phone && (
+                        <div className="flex items-center gap-2">
+                          <Phone className="w-3 h-3" /><span>{advocate.phone}</span>
+                        </div>
+                      )}
+                      {advocate.email && (
+                        <div className="flex items-center gap-2">
+                          <Mail className="w-3 h-3" /><span>{advocate.email}</span>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-                
+
                 <div className="bg-muted/30 px-6 py-3 border-t flex items-center justify-between">
                   <div className="font-semibold text-foreground">
-                    ${advocate.consultationFee} <span className="text-xs font-normal text-muted-foreground">/ consultation</span>
+                    ₹{advocate.consultationFee} <span className="text-xs font-normal text-muted-foreground">/ consultation</span>
                   </div>
-                  <Button size="sm" className="bg-primary text-primary-foreground hover:bg-primary/90">
+                  <Button size="sm" data-testid={`button-contact-${advocate.id}`}>
                     Contact
                   </Button>
                 </div>

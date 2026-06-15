@@ -16,9 +16,19 @@ import { useToast } from "@/hooks/use-toast";
 import { UploadCloud, FileText, Trash2, MessageSquare, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 
+function extractReadableText(raw: string): string {
+  // Strip binary/non-printable chars, keep readable ASCII + newlines
+  return raw
+    .replace(/[^\x20-\x7E\n\r\t]/g, " ")
+    .replace(/\s{3,}/g, "  ")
+    .trim()
+    .substring(0, 60000);
+}
+
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState("");
+  const [fileContent, setFileContent] = useState<string>("");
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -28,8 +38,18 @@ export default function UploadPage() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      setFile(e.target.files[0]);
-      if (!fileName) setFileName(e.target.files[0].name);
+      const f = e.target.files[0];
+      setFile(f);
+      if (!fileName) setFileName(f.name);
+      setFileContent("");
+
+      // Read file content as text so AI can actually analyse it
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        const raw = (ev.target?.result as string) || "";
+        setFileContent(extractReadableText(raw));
+      };
+      reader.readAsText(f);
     }
   };
 
@@ -45,17 +65,17 @@ export default function UploadPage() {
         data: { 
           name: fileName || file.name, 
           size: file.size, 
-          type: file.type || "application/pdf" 
+          type: file.type || "application/pdf",
+          content: fileContent || null,
         } 
       },
       {
         onSuccess: () => {
-          toast({ title: "Document uploaded", description: "Your document has been successfully uploaded and queued for processing." });
+          toast({ title: "Document uploaded", description: "Your document has been uploaded and is ready for AI analysis." });
           setFile(null);
           setFileName("");
+          setFileContent("");
           queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey() });
-          
-          // Reset file input
           const fileInput = document.getElementById('document-upload') as HTMLInputElement;
           if (fileInput) fileInput.value = '';
         },
@@ -103,7 +123,7 @@ export default function UploadPage() {
           <Card>
             <CardHeader>
               <CardTitle>Upload Document</CardTitle>
-              <CardDescription>Upload PDF or DOCX files for analysis.</CardDescription>
+              <CardDescription>Upload PDF, DOCX, or TXT files for AI analysis.</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleUpload} className="space-y-4">
@@ -112,13 +132,13 @@ export default function UploadPage() {
                     id="document-upload" 
                     type="file" 
                     className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
                     onChange={handleFileChange}
                   />
                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
                     <UploadCloud className="w-8 h-8" />
                     <span className="font-medium text-sm">{file ? file.name : "Drag & drop or click to browse"}</span>
-                    <span className="text-xs opacity-75">PDF, DOCX up to 50MB</span>
+                    <span className="text-xs opacity-75">PDF, DOCX, TXT up to 50MB</span>
                   </div>
                 </div>
 
@@ -131,6 +151,11 @@ export default function UploadPage() {
                       onChange={(e) => setFileName(e.target.value)} 
                       placeholder="Enter a descriptive name" 
                     />
+                    {fileContent && (
+                      <p className="text-xs text-emerald-600">
+                        ✓ Content extracted ({Math.round(fileContent.length / 1000)}KB) — ready for AI analysis
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -147,7 +172,7 @@ export default function UploadPage() {
           <Card>
             <CardHeader>
               <CardTitle>Your Documents</CardTitle>
-              <CardDescription>Documents available for chat and extraction.</CardDescription>
+              <CardDescription>Documents available for AI chat analysis.</CardDescription>
             </CardHeader>
             <CardContent>
               {isLoading ? (

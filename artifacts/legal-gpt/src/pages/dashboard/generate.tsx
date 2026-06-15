@@ -1,0 +1,281 @@
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { 
+  useGenerateDocument,
+  useListDrafts,
+  getListDraftsQueryKey,
+  useDeleteDraft,
+  DocumentGenerationInputDocumentType
+} from "@workspace/api-client-react";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useToast } from "@/hooks/use-toast";
+import { Edit3, Download, Save, Send, FileText, Loader2, Trash2 } from "lucide-react";
+import { Link } from "wouter";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ScrollArea } from "@/components/ui/scroll-area";
+
+export default function GeneratePage() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: drafts = [], isLoading: draftsLoading } = useListDrafts({ query: { queryKey: getListDraftsQueryKey() } });
+  const generateMutation = useGenerateDocument();
+  const deleteMutation = useDeleteDraft();
+
+  const [formData, setFormData] = useState({
+    documentType: "nda" as DocumentGenerationInputDocumentType,
+    clientName: "",
+    oppositeName: "",
+    address: "",
+    purpose: "",
+    date: new Date().toISOString().split('T')[0],
+    keyTerms: "",
+    jurisdiction: ""
+  });
+
+  const [generatedPreview, setGeneratedPreview] = useState<string | null>(null);
+
+  const handleGenerate = (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    generateMutation.mutate(
+      { data: formData },
+      {
+        onSuccess: (data) => {
+          toast({ title: "Draft generated", description: "Document successfully generated." });
+          setGeneratedPreview(data.content);
+          queryClient.invalidateQueries({ queryKey: getListDraftsQueryKey() });
+        },
+        onError: () => {
+          toast({ title: "Generation failed", description: "An error occurred while generating the document.", variant: "destructive" });
+        }
+      }
+    );
+  };
+
+  const handleDelete = (id: number) => {
+    if (confirm("Delete this draft?")) {
+      deleteMutation.mutate(
+        { id },
+        {
+          onSuccess: () => queryClient.invalidateQueries({ queryKey: getListDraftsQueryKey() }),
+          onError: () => toast({ title: "Delete failed", variant: "destructive" })
+        }
+      );
+    }
+  };
+
+  const docTypes = [
+    { value: "nda", label: "Non-Disclosure Agreement (NDA)" },
+    { value: "rental_agreement", label: "Rental Agreement" },
+    { value: "employment_agreement", label: "Employment Agreement" },
+    { value: "service_agreement", label: "Service Agreement" },
+    { value: "legal_notice", label: "Legal Notice" },
+    { value: "formal_complaint", label: "Formal Complaint Letter" },
+    { value: "authorization_letter", label: "Authorization Letter" }
+  ];
+
+  return (
+    <div className="space-y-8 max-w-6xl mx-auto">
+      <div>
+        <h1 className="text-3xl font-serif font-bold text-foreground">Document Generator</h1>
+        <p className="text-muted-foreground">Draft custom legal documents tailored to your specific parameters.</p>
+      </div>
+
+      <Tabs defaultValue="generator" className="w-full">
+        <TabsList className="grid w-full max-w-md grid-cols-2 mb-6">
+          <TabsTrigger value="generator">Generator</TabsTrigger>
+          <TabsTrigger value="drafts">Saved Drafts ({drafts.length})</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="generator">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            <Card>
+              <CardHeader>
+                <CardTitle>Document Parameters</CardTitle>
+                <CardDescription>Fill in the details to generate a customized draft.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form id="generate-form" onSubmit={handleGenerate} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>Document Type</Label>
+                    <Select 
+                      value={formData.documentType} 
+                      onValueChange={(val) => setFormData({...formData, documentType: val as any})}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select type" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {docTypes.map(type => (
+                          <SelectItem key={type.value} value={type.value}>{type.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Client Name (First Party)</Label>
+                      <Input 
+                        value={formData.clientName} 
+                        onChange={(e) => setFormData({...formData, clientName: e.target.value})} 
+                        required 
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Opposite Name (Second Party)</Label>
+                      <Input 
+                        value={formData.oppositeName} 
+                        onChange={(e) => setFormData({...formData, oppositeName: e.target.value})} 
+                        required 
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Effective Date</Label>
+                    <Input 
+                      type="date" 
+                      value={formData.date} 
+                      onChange={(e) => setFormData({...formData, date: e.target.value})} 
+                      required 
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Address / Location details</Label>
+                    <Input 
+                      value={formData.address} 
+                      onChange={(e) => setFormData({...formData, address: e.target.value})} 
+                      placeholder="e.g., 123 Main St, New York, NY"
+                      required 
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Jurisdiction (State/Country law)</Label>
+                    <Input 
+                      value={formData.jurisdiction} 
+                      onChange={(e) => setFormData({...formData, jurisdiction: e.target.value})} 
+                      placeholder="e.g., State of California"
+                      required 
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Purpose / Subject Matter</Label>
+                    <Input 
+                      value={formData.purpose} 
+                      onChange={(e) => setFormData({...formData, purpose: e.target.value})} 
+                      placeholder="What is the main objective of this document?"
+                      required 
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Specific Key Terms (Optional)</Label>
+                    <Textarea 
+                      value={formData.keyTerms} 
+                      onChange={(e) => setFormData({...formData, keyTerms: e.target.value})} 
+                      placeholder="List any specific conditions, amounts, or terms to include..."
+                      className="resize-none h-24"
+                    />
+                  </div>
+                </form>
+              </CardContent>
+              <CardFooter className="bg-muted/30 border-t py-4">
+                <Button type="submit" form="generate-form" className="w-full" disabled={generateMutation.isPending}>
+                  {generateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Edit3 className="w-4 h-4 mr-2" />}
+                  {generateMutation.isPending ? "Generating..." : "Generate Document"}
+                </Button>
+              </CardFooter>
+            </Card>
+
+            <Card className="flex flex-col h-[800px] lg:h-auto">
+              <CardHeader className="border-b bg-muted/10 pb-4">
+                <div className="flex items-center justify-between">
+                  <CardTitle>Preview</CardTitle>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" disabled={!generatedPreview}>
+                      <Download className="w-4 h-4 mr-2" /> PDF
+                    </Button>
+                    <Button size="sm" disabled={!generatedPreview} asChild>
+                      <Link href="/dashboard/email">
+                         <Send className="w-4 h-4 mr-2" /> Email
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <ScrollArea className="flex-1 p-6 bg-background">
+                {generatedPreview ? (
+                  <div className="prose dark:prose-invert max-w-none text-sm font-serif">
+                    {/* Render plain text with newlines if markdown isn't processed */}
+                    <div className="whitespace-pre-wrap">{generatedPreview}</div>
+                  </div>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-muted-foreground text-center p-8">
+                    <FileText className="w-16 h-16 text-muted-foreground/30 mb-4" />
+                    <p>Fill out the form and generate to see the document preview here.</p>
+                  </div>
+                )}
+              </ScrollArea>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="drafts">
+          <Card>
+            <CardHeader>
+              <CardTitle>Your Saved Drafts</CardTitle>
+              <CardDescription>Previously generated documents that you can review or send.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {draftsLoading ? (
+                <div className="p-8 text-center text-muted-foreground">Loading drafts...</div>
+              ) : drafts.length === 0 ? (
+                <div className="text-center p-12 border rounded-lg bg-muted/20 border-dashed">
+                  <p className="text-muted-foreground text-sm">No drafts saved yet.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {drafts.map((draft) => (
+                    <div key={draft.id} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 border rounded-lg hover:bg-muted/30 transition-colors gap-4">
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 bg-primary/10 rounded text-primary mt-1 shrink-0">
+                          <FileText className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-foreground">{draft.title}</h4>
+                          <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                            <span className="capitalize">{draft.documentType.replace('_', ' ')}</span>
+                            <span>•</span>
+                            <span>{new Date(draft.createdAt).toLocaleDateString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button variant="outline" size="sm" onClick={() => setGeneratedPreview(draft.content)}>
+                          View
+                        </Button>
+                        <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDelete(draft.id)}>
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+    </div>
+  );
+}

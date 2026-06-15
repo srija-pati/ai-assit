@@ -1,22 +1,39 @@
 openapi: 3.1.0
 info:
-  # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: LegalGPT API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: documents
+    description: Document management
+  - name: chat
+    description: AI chat operations
+  - name: clauses
+    description: Clause extraction
+  - name: drafts
+    description: Document generation
+  - name: advocates
+    description: Advocate directory
+  - name: emails
+    description: Email sending
+  - name: admin
+    description: Admin operations
+  - name: history
+    description: User history
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +41,815 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /auth/signup:
+    post:
+      operationId: signup
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignupInput"
+      responses:
+        "201":
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthResponse"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /auth/me:
+    get:
+      operationId: getCurrentUser
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+
+  /documents:
+    get:
+      operationId: listDocuments
+      tags: [documents]
+      summary: List all documents for current user
+      responses:
+        "200":
+          description: List of documents
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Document"
+    post:
+      operationId: uploadDocument
+      tags: [documents]
+      summary: Upload a document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentInput"
+      responses:
+        "201":
+          description: Document uploaded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+
+  /documents/{id}:
+    get:
+      operationId: getDocument
+      tags: [documents]
+      summary: Get document by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Document"
+    delete:
+      operationId: deleteDocument
+      tags: [documents]
+      summary: Delete document
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /chat:
+    post:
+      operationId: sendChatMessage
+      tags: [chat]
+      summary: Send a message to AI legal assistant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChatMessageInput"
+      responses:
+        "200":
+          description: AI response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChatResponse"
+
+  /chat/history:
+    get:
+      operationId: getChatHistory
+      tags: [chat]
+      summary: Get chat history
+      responses:
+        "200":
+          description: List of chat messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ChatMessage"
+
+  /extract-clauses:
+    post:
+      operationId: extractClauses
+      tags: [clauses]
+      summary: Extract clauses from a document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ClauseExtractionInput"
+      responses:
+        "200":
+          description: Extracted clauses
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClauseExtractionResult"
+
+  /clause-extractions:
+    get:
+      operationId: listClauseExtractions
+      tags: [clauses]
+      summary: List clause extractions
+      responses:
+        "200":
+          description: List of clause extractions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ClauseExtraction"
+
+  /generate-document:
+    post:
+      operationId: generateDocument
+      tags: [drafts]
+      summary: Generate a legal document
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DocumentGenerationInput"
+      responses:
+        "200":
+          description: Generated document
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedDraft"
+
+  /drafts:
+    get:
+      operationId: listDrafts
+      tags: [drafts]
+      summary: List generated drafts
+      responses:
+        "200":
+          description: List of drafts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/GeneratedDraft"
+
+  /drafts/{id}:
+    get:
+      operationId: getDraft
+      tags: [drafts]
+      summary: Get draft by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Draft
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GeneratedDraft"
+    delete:
+      operationId: deleteDraft
+      tags: [drafts]
+      summary: Delete draft
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /advocates:
+    get:
+      operationId: listAdvocates
+      tags: [advocates]
+      summary: List advocates with optional filters
+      parameters:
+        - name: location
+          in: query
+          schema:
+            type: string
+        - name: specialization
+          in: query
+          schema:
+            type: string
+        - name: minRating
+          in: query
+          schema:
+            type: number
+        - name: available
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of advocates
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Advocate"
+
+  /advocates/{id}:
+    get:
+      operationId: getAdvocate
+      tags: [advocates]
+      summary: Get advocate by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Advocate
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Advocate"
+
+  /send-email:
+    post:
+      operationId: sendEmail
+      tags: [emails]
+      summary: Send legal letter by email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EmailInput"
+      responses:
+        "200":
+          description: Email sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SentEmail"
+
+  /emails:
+    get:
+      operationId: listEmails
+      tags: [emails]
+      summary: List sent emails
+      responses:
+        "200":
+          description: List of sent emails
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SentEmail"
+
+  /admin/stats:
+    get:
+      operationId: getAdminStats
+      tags: [admin]
+      summary: Get admin dashboard statistics
+      responses:
+        "200":
+          description: Admin stats
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdminStats"
+
+  /admin/users:
+    get:
+      operationId: listUsers
+      tags: [admin]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /admin/logs:
+    get:
+      operationId: listAdminLogs
+      tags: [admin]
+      summary: Get admin activity logs
+      responses:
+        "200":
+          description: Admin logs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AdminLog"
+
+  /admin/reindex:
+    post:
+      operationId: reindexDocuments
+      tags: [admin]
+      summary: Retrain / re-index all documents in vector store
+      responses:
+        "200":
+          description: Reindex started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SuccessResponse"
+
+  /history:
+    get:
+      operationId: getHistory
+      tags: [history]
+      summary: Get user activity history
+      responses:
+        "200":
+          description: Activity history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/HistoryItem"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [history]
+      summary: Get dashboard summary stats for current user
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    SuccessResponse:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+        message:
+          type: ["string", "null"]
+
+    SignupInput:
+      type: object
+      required: [name, email, password]
+      properties:
+        name:
+          type: string
+        email:
+          type: string
+        password:
+          type: string
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    User:
+      type: object
+      required: [id, name, email, role, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+          enum: [admin, user]
+        createdAt:
+          type: string
+
+    AuthResponse:
+      type: object
+      required: [user, token]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        token:
+          type: string
+
+    DocumentInput:
+      type: object
+      required: [name, size, type]
+      properties:
+        name:
+          type: string
+        size:
+          type: integer
+        type:
+          type: string
+        content:
+          type: ["string", "null"]
+
+    Document:
+      type: object
+      required: [id, name, size, type, status, uploadDate, userId]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        size:
+          type: integer
+        type:
+          type: string
+        status:
+          type: string
+          enum: [pending, processed, failed]
+        uploadDate:
+          type: string
+        userId:
+          type: integer
+        summary:
+          type: ["string", "null"]
+
+    ChatMessageInput:
+      type: object
+      required: [message]
+      properties:
+        message:
+          type: string
+        documentId:
+          type: ["integer", "null"]
+        sessionId:
+          type: ["string", "null"]
+
+    ChatMessage:
+      type: object
+      required: [id, role, content, createdAt]
+      properties:
+        id:
+          type: integer
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+        documentId:
+          type: ["integer", "null"]
+        sessionId:
+          type: ["string", "null"]
+        sources:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    ChatResponse:
+      type: object
+      required: [id, role, content, createdAt]
+      properties:
+        id:
+          type: integer
+        role:
+          type: string
+        content:
+          type: string
+        sources:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    ClauseExtractionInput:
+      type: object
+      required: [documentId]
+      properties:
+        documentId:
+          type: integer
+        clauseTypes:
+          type: array
+          items:
+            type: string
+
+    ClauseExtraction:
+      type: object
+      required: [id, documentId, clauses, extractedAt]
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        clauses:
+          type: string
+        extractedAt:
+          type: string
+
+    ClauseExtractionResult:
+      type: object
+      required: [id, documentId, clauses, extractedAt]
+      properties:
+        id:
+          type: integer
+        documentId:
+          type: integer
+        clauses:
+          type: object
+          additionalProperties: true
+        extractedAt:
+          type: string
+
+    DocumentGenerationInput:
+      type: object
+      required: [documentType, clientName, oppositeName, address, purpose, date, jurisdiction]
+      properties:
+        documentType:
+          type: string
+          enum: [nda, rental_agreement, employment_agreement, service_agreement, legal_notice, formal_complaint, authorization_letter, contract_summary]
+        clientName:
+          type: string
+        oppositeName:
+          type: string
+        address:
+          type: string
+        purpose:
+          type: string
+        date:
+          type: string
+        keyTerms:
+          type: ["string", "null"]
+        jurisdiction:
+          type: string
+
+    GeneratedDraft:
+      type: object
+      required: [id, documentType, title, content, createdAt, userId]
+      properties:
+        id:
+          type: integer
+        documentType:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        clientName:
+          type: string
+        oppositeName:
+          type: string
+        createdAt:
+          type: string
+        userId:
+          type: integer
+
+    Advocate:
+      type: object
+      required: [id, name, specialization, city, experience, rating, available, consultationFee]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        specialization:
+          type: string
+        city:
+          type: string
+        experience:
+          type: integer
+        rating:
+          type: number
+        available:
+          type: boolean
+        consultationFee:
+          type: integer
+        phone:
+          type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+        bio:
+          type: ["string", "null"]
+
+    EmailInput:
+      type: object
+      required: [recipientEmail, subject, body]
+      properties:
+        recipientEmail:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        draftId:
+          type: ["integer", "null"]
+
+    SentEmail:
+      type: object
+      required: [id, recipientEmail, subject, sentAt, status]
+      properties:
+        id:
+          type: integer
+        recipientEmail:
+          type: string
+        subject:
+          type: string
+        body:
+          type: string
+        draftId:
+          type: ["integer", "null"]
+        sentAt:
+          type: string
+        status:
+          type: string
+          enum: [sent, failed, pending]
+
+    AdminStats:
+      type: object
+      required: [totalUsers, totalDocuments, totalQueries, generatedPdfs, sentEmails, systemActivity]
+      properties:
+        totalUsers:
+          type: integer
+        totalDocuments:
+          type: integer
+        totalQueries:
+          type: integer
+        generatedPdfs:
+          type: integer
+        sentEmails:
+          type: integer
+        systemActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/AdminLog"
+
+    AdminLog:
+      type: object
+      required: [id, action, userId, createdAt]
+      properties:
+        id:
+          type: integer
+        action:
+          type: string
+        userId:
+          type: ["integer", "null"]
+        details:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    HistoryItem:
+      type: object
+      required: [id, type, description, createdAt]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [upload, chat, extract, generate, email]
+        description:
+          type: string
+        createdAt:
+          type: string
+        metadata:
+          type: ["string", "null"]
+
+    DashboardSummary:
+      type: object
+      required: [uploadedDocuments, questionsAsked, draftsGenerated, advocatesFound, lettersSent, recentActivity]
+      properties:
+        uploadedDocuments:
+          type: integer
+        questionsAsked:
+          type: integer
+        draftsGenerated:
+          type: integer
+        advocatesFound:
+          type: integer
+        lettersSent:
+          type: integer
+        recentActivity:
+          type: array
+          items:
+            $ref: "#/components/schemas/HistoryItem"

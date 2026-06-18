@@ -1,11 +1,10 @@
 import { Link } from "wouter";
-import { Button } from "@/components/ui/button";
-import { Shield, FileText, MessageSquare, Upload, Mail, Users, Database, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Shield, FileText, MessageSquare, Upload, Mail, Users, CheckCircle2, ArrowRight, Lock, Zap } from "lucide-react";
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background flex flex-col font-sans">
-      <header className="border-b bg-card">
+      <header className="border-b bg-card sticky top-0 z-50">
         <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Shield className="w-6 h-6 text-accent" />
@@ -13,15 +12,17 @@ export default function LandingPage() {
           </div>
           <nav className="flex items-center gap-4">
             <Link href="/login" className="text-sm font-medium hover:text-accent transition-colors">Login</Link>
-            <Link href="/login" className="bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:bg-primary/90 transition-colors">Get Started</Link>
+            <Link href="/login" className="bg-primary text-primary-foreground px-4 py-2 rounded-md text-sm font-medium hover:bg-primary/90 transition-colors">
+              Get Started
+            </Link>
           </nav>
         </div>
       </header>
 
       <main className="flex-1">
-        {/* Hero Section */}
+        {/* Hero */}
         <section className="py-20 lg:py-32 bg-primary text-primary-foreground text-center px-4 relative overflow-hidden">
-          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-accent via-primary to-primary pointer-events-none"></div>
+          <div className="absolute inset-0 opacity-10 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-accent via-primary to-primary pointer-events-none" />
           <div className="container mx-auto max-w-4xl relative z-10">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/20 text-accent mb-6 text-sm font-medium border border-accent/20">
               <Shield className="w-4 h-4" /> Enterprise-Grade AI Legal Assistant
@@ -30,14 +31,11 @@ export default function LandingPage() {
               LegalGPT: AI-Powered Legal Assistant
             </h1>
             <p className="text-xl text-primary-foreground/80 mb-10 max-w-2xl mx-auto leading-relaxed">
-              Analyze legal documents, extract clauses, draft contracts, ask legal questions, and generate formal letters using RAG and LLM support.
+              Upload legal documents and get instant AI-powered analysis, draft contracts, find advocates, and send formal communications — all in one platform.
             </p>
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link href="/login" className="bg-accent text-accent-foreground px-8 py-3 rounded-md font-medium text-lg hover:bg-accent/90 transition-colors flex items-center gap-2">
                 Get Started <ArrowRight className="w-5 h-5" />
-              </Link>
-              <Link href="/dashboard/upload" className="bg-white/10 text-white border border-white/20 px-8 py-3 rounded-md font-medium text-lg hover:bg-white/20 transition-colors">
-                Upload Document
               </Link>
               <Link href="/dashboard/chat" className="bg-white/10 text-white border border-white/20 px-8 py-3 rounded-md font-medium text-lg hover:bg-white/20 transition-colors">
                 Ask LegalGPT
@@ -53,24 +51,25 @@ export default function LandingPage() {
           </p>
         </div>
 
-        {/* Features Section */}
+        {/* Features */}
         <section className="py-20 bg-muted/30 px-4">
           <div className="container mx-auto">
             <div className="text-center mb-16">
-              <h2 className="text-3xl font-serif font-bold text-foreground mb-4">Comprehensive Legal Workflows</h2>
+              <h2 className="text-3xl font-serif font-bold text-foreground mb-4">Everything You Need for Legal Work</h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">Automate your legal documentation processes with state-of-the-art AI technology.</p>
             </div>
-            
-            <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-6xl mx-auto">
+
+            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 max-w-5xl mx-auto">
               {[
-                { icon: FileText, title: "Document Analysis", desc: "Instantly analyze complex contracts and agreements." },
-                { icon: Shield, title: "Risk Detection", desc: "Identify potentially harmful clauses and loopholes." },
-                { icon: MessageSquare, title: "Legal Chat", desc: "Ask context-aware questions about your documents." },
-                { icon: Upload, title: "Secure Uploads", desc: "Enterprise-grade encryption for all your files." },
-                { icon: Mail, title: "Formal Letters", desc: "Generate and send professional legal correspondence." },
-                { icon: Users, title: "Advocate Directory", desc: "Find top-rated legal professionals by specialization." },
-                { icon: Database, title: "Clause Extraction", desc: "Automatically pull key terms and dates." },
-                { icon: CheckCircle2, title: "Contract Drafting", desc: "Generate custom NDAs and agreements in seconds." }
+                { icon: FileText, title: "Document Analysis", desc: "Instantly analyze complex contracts, agreements, and legal documents with AI precision." },
+                { icon: Shield, title: "Risk Detection", desc: "Identify potentially harmful clauses, loopholes, and legal risks before signing." },
+                { icon: MessageSquare, title: "AI Legal Chat", desc: "Ask any question about your uploaded documents and get context-aware answers instantly." },
+                { icon: Upload, title: "Secure Uploads", desc: "Enterprise-grade encryption for all your confidential legal files and documents." },
+                { icon: Mail, title: "Formal Letters", desc: "Generate and send professional legal correspondence with a single click." },
+                { icon: Users, title: "Advocate Directory", desc: "Find top-rated legal professionals by specialization and location." },
+                { icon: CheckCircle2, title: "Contract Drafting", desc: "Generate custom NDAs, rental agreements, and legal contracts in seconds." },
+                { icon: Zap, title: "Instant Insights", desc: "Get summaries, key terms, parties, and obligations extracted automatically." },
+                { icon: Lock, title: "Private & Secure", desc: "Your documents are yours — encrypted, isolated, and never shared." },
               ].map((feature, i) => (
                 <div key={i} className="bg-card p-6 rounded-lg border shadow-sm hover:shadow-md transition-shadow">
                   <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center text-primary mb-4">
@@ -84,51 +83,39 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* RAG Workflow Section */}
+        {/* How it works */}
         <section className="py-20 px-4 bg-background">
-          <div className="container mx-auto max-w-5xl">
+          <div className="container mx-auto max-w-4xl">
             <div className="text-center mb-16">
-              <h2 className="text-3xl font-serif font-bold text-foreground mb-4">How It Works: The RAG Architecture</h2>
-              <p className="text-muted-foreground max-w-2xl mx-auto">Powered by Retrieval-Augmented Generation for pinpoint accuracy and context-aware responses.</p>
+              <h2 className="text-3xl font-serif font-bold text-foreground mb-4">How LegalGPT Works</h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">Three simple steps to get legal clarity in minutes.</p>
             </div>
-
-            <div className="relative">
-              {/* Desktop layout */}
-              <div className="hidden lg:flex items-center justify-between relative z-10">
-                <WorkflowStep icon={Upload} label="Upload Document" />
-                <WorkflowArrow />
-                <WorkflowStep icon={FileText} label="Text Extraction & Chunking" />
-                <WorkflowArrow />
-                <WorkflowStep icon={Database} label="ChromaDB Vector Store" />
-                <WorkflowArrow />
-                <WorkflowStep icon={MessageSquare} label="LLM Retrieval" />
-                <WorkflowArrow />
-                <WorkflowStep icon={CheckCircle2} label="Insights & Output" />
-              </div>
-
-              {/* Mobile layout */}
-              <div className="lg:hidden flex flex-col items-center gap-6">
-                <WorkflowStep icon={Upload} label="Upload Document" />
-                <div className="w-px h-8 bg-border"></div>
-                <WorkflowStep icon={FileText} label="Text Extraction & Chunking" />
-                <div className="w-px h-8 bg-border"></div>
-                <WorkflowStep icon={Database} label="ChromaDB Vector Store" />
-                <div className="w-px h-8 bg-border"></div>
-                <WorkflowStep icon={MessageSquare} label="LLM Retrieval" />
-                <div className="w-px h-8 bg-border"></div>
-                <WorkflowStep icon={CheckCircle2} label="Insights & Output" />
-              </div>
+            <div className="grid md:grid-cols-3 gap-8">
+              {[
+                { step: "01", icon: Upload, title: "Upload Your Document", desc: "Upload any legal document — contract, NDA, agreement, or notice. Supported formats: PDF, DOCX, TXT." },
+                { step: "02", icon: MessageSquare, title: "Ask Anything", desc: "Chat with LegalGPT like you would with a lawyer. Ask for summaries, risk analysis, plain-language explanations, or specific clause details." },
+                { step: "03", icon: CheckCircle2, title: "Take Action", desc: "Draft new documents, send formal emails, find advocates nearby, and save your legal work — all in one place." },
+              ].map(({ step, icon: Icon, title, desc }) => (
+                <div key={step} className="text-center">
+                  <div className="w-16 h-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center mx-auto mb-4 shadow-lg font-bold text-lg font-serif">
+                    {step}
+                  </div>
+                  <Icon className="w-6 h-6 text-accent mx-auto mb-3" />
+                  <h3 className="font-bold text-lg mb-2">{title}</h3>
+                  <p className="text-muted-foreground text-sm leading-relaxed">{desc}</p>
+                </div>
+              ))}
             </div>
           </div>
         </section>
 
-        {/* CTA Section */}
+        {/* CTA */}
         <section className="py-24 bg-primary text-primary-foreground text-center px-4">
           <div className="container mx-auto max-w-3xl">
             <h2 className="text-4xl font-serif font-bold mb-6">Ready to streamline your legal work?</h2>
-            <p className="text-lg text-primary-foreground/80 mb-10">Join thousands of professionals using LegalGPT to save time and reduce risks.</p>
+            <p className="text-lg text-primary-foreground/80 mb-10">Join professionals using LegalGPT to save time, reduce risk, and gain clarity on legal matters.</p>
             <Link href="/login" className="bg-accent text-accent-foreground px-10 py-4 rounded-md font-bold text-lg hover:bg-accent/90 transition-colors inline-block shadow-lg">
-              Create Your Free Account
+              Get Started Today
             </Link>
           </div>
         </section>
@@ -144,25 +131,6 @@ export default function LandingPage() {
           <p>&copy; {new Date().getFullYear()} LegalGPT. All rights reserved.</p>
         </div>
       </footer>
-    </div>
-  );
-}
-
-function WorkflowStep({ icon: Icon, label }: { icon: any, label: string }) {
-  return (
-    <div className="flex flex-col items-center gap-3 w-40 text-center">
-      <div className="w-16 h-16 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg border-4 border-background z-10">
-        <Icon className="w-8 h-8" />
-      </div>
-      <span className="font-semibold text-sm">{label}</span>
-    </div>
-  );
-}
-
-function WorkflowArrow() {
-  return (
-    <div className="flex-1 h-px bg-border relative -mx-4">
-      <div className="absolute right-0 top-1/2 -translate-y-1/2 w-2 h-2 border-t-2 border-r-2 border-border rotate-45"></div>
     </div>
   );
 }

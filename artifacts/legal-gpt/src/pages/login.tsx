@@ -13,19 +13,21 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [mode, setMode] = useState<"login" | "signup">("login");
+  const [name, setName] = useState("");
   const [, setLocation] = useLocation();
   const { login } = useAuth();
   const { toast } = useToast();
 
-  // Sign up state — only shown when admin explicitly navigates here via ?register=1
-  const params = new URLSearchParams(window.location.search);
-  const showRegister = params.get("register") === "1";
-
-  const [mode, setMode] = useState<"login" | "signup">(showRegister ? "signup" : "login");
-  const [name, setName] = useState("");
-
   const loginMutation = useLogin();
   const signupMutation = useSignup();
+
+  const switchMode = (next: "login" | "signup") => {
+    setMode(next);
+    setEmail("");
+    setPassword("");
+    setName("");
+  };
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
@@ -69,11 +71,37 @@ export default function LoginPage() {
           <p className="text-muted-foreground text-sm mt-1">Premium AI Legal Assistant</p>
         </div>
 
-        <Card className="shadow-xl border-border/50">
+        <Card className="shadow-xl border-border/50 overflow-hidden">
+          {/* Tab switcher */}
+          <div className="grid grid-cols-2 border-b">
+            <button
+              type="button"
+              onClick={() => switchMode("login")}
+              className={`py-4 text-sm font-semibold transition-colors ${
+                mode === "login"
+                  ? "bg-background text-foreground border-b-2 border-primary"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              }`}
+            >
+              Login
+            </button>
+            <button
+              type="button"
+              onClick={() => switchMode("signup")}
+              className={`py-4 text-sm font-semibold transition-colors ${
+                mode === "signup"
+                  ? "bg-background text-foreground border-b-2 border-primary"
+                  : "bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-muted/60"
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
+
           {mode === "login" ? (
             <form onSubmit={handleLogin}>
               <CardHeader className="pb-4">
-                <CardTitle className="text-2xl">Welcome back</CardTitle>
+                <CardTitle className="text-xl">Welcome back</CardTitle>
                 <CardDescription>Enter your credentials to access your account.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -111,18 +139,24 @@ export default function LoginPage() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="flex flex-col gap-3">
+              <CardFooter className="flex flex-col gap-3 pt-2">
                 <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
                   {loginMutation.isPending ? "Signing in..." : "Sign In"}
                   {!loginMutation.isPending && <ChevronRight className="w-4 h-4 ml-1" />}
                 </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Don't have an account?{" "}
+                  <button type="button" onClick={() => switchMode("signup")} className="text-primary hover:underline font-medium">
+                    Sign Up
+                  </button>
+                </p>
               </CardFooter>
             </form>
           ) : (
             <form onSubmit={handleSignup}>
               <CardHeader className="pb-4">
-                <CardTitle className="text-2xl">Create Account</CardTitle>
-                <CardDescription>Register a new LegalGPT account.</CardDescription>
+                <CardTitle className="text-xl">Create an account</CardTitle>
+                <CardDescription>Enter your details to get started with LegalGPT.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
@@ -132,6 +166,7 @@ export default function LoginPage() {
                     placeholder="John Doe"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
+                    autoComplete="name"
                     required
                   />
                 </div>
@@ -155,6 +190,7 @@ export default function LoginPage() {
                       type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
+                      autoComplete="new-password"
                       className="pr-10"
                       required
                     />
@@ -168,13 +204,16 @@ export default function LoginPage() {
                   </div>
                 </div>
               </CardContent>
-              <CardFooter className="flex flex-col gap-3">
+              <CardFooter className="flex flex-col gap-3 pt-2">
                 <Button type="submit" className="w-full" disabled={signupMutation.isPending}>
                   {signupMutation.isPending ? "Creating account..." : "Create Account"}
                 </Button>
-                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setMode("login")}>
-                  Already have an account? Sign in
-                </Button>
+                <p className="text-xs text-muted-foreground text-center">
+                  Already have an account?{" "}
+                  <button type="button" onClick={() => switchMode("login")} className="text-primary hover:underline font-medium">
+                    Sign In
+                  </button>
+                </p>
               </CardFooter>
             </form>
           )}

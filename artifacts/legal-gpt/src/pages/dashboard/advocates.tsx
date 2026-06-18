@@ -5,13 +5,25 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, MapPin, Briefcase, Star, Phone, Mail } from "lucide-react";
+import { Search, MapPin, Briefcase, Star, Phone, Mail, Map } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
 const SPECIALIZATIONS = [
   "Civil Law", "Criminal Law", "Corporate Law", "Family Law",
   "Property Law", "Cyber Law", "Consumer Law", "Employment Law"
 ];
+
+function openMapsForAdvocate(name: string, city: string, specialization: string) {
+  const query = encodeURIComponent(`${specialization} lawyer ${name} ${city}`);
+  window.open(`https://www.google.com/maps/search/${query}`, "_blank");
+}
+
+function openMapsSearch(location: string, specialization: string) {
+  const spec = specialization && specialization !== "all" ? specialization : "lawyer";
+  const loc = location.trim() || "near me";
+  const query = encodeURIComponent(`${spec} ${loc}`);
+  window.open(`https://www.google.com/maps/search/${query}`, "_blank");
+}
 
 export default function AdvocatesPage() {
   const [location, setLocation] = useState("");
@@ -28,6 +40,10 @@ export default function AdvocatesPage() {
     query: { queryKey: getListAdvocatesQueryKey(filterParams) }
   });
 
+  const handleSearch = () => {
+    openMapsSearch(location, specialization);
+  };
+
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       <div>
@@ -43,11 +59,10 @@ export default function AdvocatesPage() {
               <div className="relative">
                 <MapPin className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="City..."
+                  placeholder="City or leave blank for nearby..."
                   className="pl-9"
                   value={location}
                   onChange={(e) => setLocation(e.target.value)}
-                  data-testid="input-location"
                 />
               </div>
             </div>
@@ -55,7 +70,7 @@ export default function AdvocatesPage() {
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Specialization</label>
               <Select value={specialization} onValueChange={setSpecialization}>
-                <SelectTrigger data-testid="select-specialization">
+                <SelectTrigger>
                   <SelectValue placeholder="All Practices" />
                 </SelectTrigger>
                 <SelectContent>
@@ -70,7 +85,7 @@ export default function AdvocatesPage() {
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Minimum Rating</label>
               <Select value={minRating} onValueChange={setMinRating}>
-                <SelectTrigger data-testid="select-rating">
+                <SelectTrigger>
                   <SelectValue placeholder="Any rating" />
                 </SelectTrigger>
                 <SelectContent>
@@ -82,12 +97,16 @@ export default function AdvocatesPage() {
               </Select>
             </div>
 
-            <div className="flex items-end">
-              <Button className="w-full" data-testid="button-search">
-                <Search className="w-4 h-4 mr-2" /> Search
+            <div className="flex items-end gap-2">
+              <Button className="flex-1" onClick={handleSearch}>
+                <Map className="w-4 h-4 mr-2" /> Find on Maps
               </Button>
             </div>
           </div>
+          <p className="text-xs text-muted-foreground mt-3 flex items-center gap-1">
+            <MapPin className="w-3 h-3" />
+            Clicking "Find on Maps" opens Google Maps to locate lawyers near you. Directory below shows our registered advocates.
+          </p>
         </CardContent>
       </Card>
 
@@ -103,12 +122,15 @@ export default function AdvocatesPage() {
         <div className="text-center p-12 border rounded-lg bg-muted/10">
           <Search className="w-12 h-12 text-muted-foreground/50 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-foreground mb-1">No advocates found</h3>
-          <p className="text-muted-foreground text-sm">Try adjusting your search filters.</p>
+          <p className="text-muted-foreground text-sm mb-4">Try adjusting your filters, or search Google Maps for lawyers nearby.</p>
+          <Button variant="outline" onClick={() => openMapsSearch(location, specialization)}>
+            <Map className="w-4 h-4 mr-2" /> Search Lawyers on Google Maps
+          </Button>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {advocates.map((advocate) => (
-            <Card key={advocate.id} data-testid={`card-advocate-${advocate.id}`} className="overflow-hidden hover:shadow-md transition-shadow group">
+            <Card key={advocate.id} className="overflow-hidden hover:shadow-md transition-shadow group">
               <CardContent className="p-0">
                 <div className="p-6">
                   <div className="flex justify-between items-start mb-4">
@@ -170,8 +192,11 @@ export default function AdvocatesPage() {
                   <div className="font-semibold text-foreground">
                     ₹{advocate.consultationFee} <span className="text-xs font-normal text-muted-foreground">/ consultation</span>
                   </div>
-                  <Button size="sm" data-testid={`button-contact-${advocate.id}`}>
-                    Contact
+                  <Button
+                    size="sm"
+                    onClick={() => openMapsForAdvocate(advocate.name, advocate.city, advocate.specialization)}
+                  >
+                    <MapPin className="w-3.5 h-3.5 mr-1.5" /> Locate
                   </Button>
                 </div>
               </CardContent>

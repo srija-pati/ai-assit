@@ -5,19 +5,24 @@ import { useLogin, useSignup } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Shield, AlertCircle } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Shield, Eye, EyeOff, ChevronRight } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [name, setName] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [, setLocation] = useLocation();
   const { login } = useAuth();
   const { toast } = useToast();
+
+  // Sign up state — only shown when admin explicitly navigates here via ?register=1
+  const params = new URLSearchParams(window.location.search);
+  const showRegister = params.get("register") === "1";
+
+  const [mode, setMode] = useState<"login" | "signup">(showRegister ? "signup" : "login");
+  const [name, setName] = useState("");
 
   const loginMutation = useLogin();
   const signupMutation = useSignup();
@@ -25,7 +30,6 @@ export default function LoginPage() {
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password) return;
-    
     loginMutation.mutate({ data: { email, password } }, {
       onSuccess: (data) => {
         login(data.user, data.token);
@@ -41,7 +45,6 @@ export default function LoginPage() {
   const handleSignup = (e: React.FormEvent) => {
     e.preventDefault();
     if (!email || !password || !name) return;
-
     signupMutation.mutate({ data: { email, password, name } }, {
       onSuccess: (data) => {
         login(data.user, data.token);
@@ -54,130 +57,130 @@ export default function LoginPage() {
     });
   };
 
-  const autofillAdmin = () => {
-    setEmail('admin@legalgpt.com');
-    setPassword('admin123');
-  };
-
   return (
-    <div className="min-h-screen bg-muted/30 flex flex-col items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-primary/5 via-background to-accent/5 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md">
+        {/* Logo */}
         <div className="flex flex-col items-center mb-8">
           <div className="w-16 h-16 bg-primary rounded-xl flex items-center justify-center mb-4 shadow-lg">
             <Shield className="w-8 h-8 text-accent" />
           </div>
           <h1 className="text-3xl font-serif font-bold text-foreground">LegalGPT</h1>
-          <p className="text-muted-foreground">Premium AI Legal Assistant</p>
+          <p className="text-muted-foreground text-sm mt-1">Premium AI Legal Assistant</p>
         </div>
 
         <Card className="shadow-xl border-border/50">
-          <Tabs defaultValue="login" className="w-full">
-            <TabsList className="grid w-full grid-cols-2 rounded-none rounded-t-lg h-14">
-              <TabsTrigger value="login" className="text-base">Login</TabsTrigger>
-              <TabsTrigger value="signup" className="text-base">Sign Up</TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="login" className="p-0 border-0">
-              <form onSubmit={handleLogin}>
-                <CardHeader>
-                  <CardTitle>Welcome back</CardTitle>
-                  <CardDescription>Enter your credentials to access your account.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input 
-                      id="email" 
-                      type="email" 
-                      placeholder="name@example.com" 
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="password">Password</Label>
-                    <Input 
-                      id="password" 
-                      type="password" 
+          {mode === "login" ? (
+            <form onSubmit={handleLogin}>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-2xl">Welcome back</CardTitle>
+                <CardDescription>Enter your credentials to access your account.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="email">Email address</Label>
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="password"
+                      type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      required 
+                      autoComplete="current-password"
+                      className="pr-10"
+                      required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
                   </div>
-
-                  <Alert className="bg-muted/50 border-border">
-                    <AlertCircle className="h-4 w-4 text-accent" />
-                    <AlertDescription className="text-xs text-muted-foreground flex flex-col gap-2 mt-1">
-                      <span>Demo admin account:</span>
-                      <div className="flex gap-2 items-center">
-                        <Button type="button" variant="outline" size="sm" onClick={autofillAdmin} className="h-7 text-xs">
-                          Fill Admin Credentials
-                        </Button>
-                        <span className="text-muted-foreground">or sign up for a new account</span>
-                      </div>
-                    </AlertDescription>
-                  </Alert>
-
-                </CardContent>
-                <CardFooter>
-                  <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
-                    {loginMutation.isPending ? "Logging in..." : "Login"}
-                  </Button>
-                </CardFooter>
-              </form>
-            </TabsContent>
-
-            <TabsContent value="signup" className="p-0 border-0">
-              <form onSubmit={handleSignup}>
-                <CardHeader>
-                  <CardTitle>Create an account</CardTitle>
-                  <CardDescription>Enter your details to get started with LegalGPT.</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-name">Full Name</Label>
-                    <Input 
-                      id="signup-name" 
-                      placeholder="John Doe" 
-                      value={name}
-                      onChange={(e) => setName(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-email">Email</Label>
-                    <Input 
-                      id="signup-email" 
-                      type="email" 
-                      placeholder="name@example.com" 
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      required 
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="signup-password">Password</Label>
-                    <Input 
-                      id="signup-password" 
-                      type="password" 
+                </div>
+              </CardContent>
+              <CardFooter className="flex flex-col gap-3">
+                <Button type="submit" className="w-full" disabled={loginMutation.isPending}>
+                  {loginMutation.isPending ? "Signing in..." : "Sign In"}
+                  {!loginMutation.isPending && <ChevronRight className="w-4 h-4 ml-1" />}
+                </Button>
+              </CardFooter>
+            </form>
+          ) : (
+            <form onSubmit={handleSignup}>
+              <CardHeader className="pb-4">
+                <CardTitle className="text-2xl">Create Account</CardTitle>
+                <CardDescription>Register a new LegalGPT account.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2">
+                  <Label htmlFor="signup-name">Full Name</Label>
+                  <Input
+                    id="signup-name"
+                    placeholder="John Doe"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-email">Email address</Label>
+                  <Input
+                    id="signup-email"
+                    type="email"
+                    placeholder="you@example.com"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    autoComplete="email"
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="signup-password">Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="signup-password"
+                      type={showPassword ? "text" : "password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      required 
+                      className="pr-10"
+                      required
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
                   </div>
-                </CardContent>
-                <CardFooter>
-                  <Button type="submit" className="w-full" disabled={signupMutation.isPending}>
-                    {signupMutation.isPending ? "Creating account..." : "Create Account"}
-                  </Button>
-                </CardFooter>
-              </form>
-            </TabsContent>
-          </Tabs>
+                </div>
+              </CardContent>
+              <CardFooter className="flex flex-col gap-3">
+                <Button type="submit" className="w-full" disabled={signupMutation.isPending}>
+                  {signupMutation.isPending ? "Creating account..." : "Create Account"}
+                </Button>
+                <Button type="button" variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setMode("login")}>
+                  Already have an account? Sign in
+                </Button>
+              </CardFooter>
+            </form>
+          )}
         </Card>
 
-        <p className="text-center text-xs text-muted-foreground mt-8">
+        <p className="text-center text-xs text-muted-foreground mt-6">
           This system provides AI-assisted legal information, not professional legal advice.
         </p>
       </div>

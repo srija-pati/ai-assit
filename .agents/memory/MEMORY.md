@@ -1,0 +1,1 @@
+- [Flask backend setup](flask-backend.md) — Flask replaces Node.js api-server; runs via artifact.toml with absolute path; SQLite + ChromaDB + LangChain + Gemini.

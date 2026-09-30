@@ -3,15 +3,18 @@ import hashlib
 import base64
 import secrets
 import datetime
-import smtplib
 import json
 import math
+import re
 import threading
 import time
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
+import zipfile
+from socket import timeout as SocketTimeout
+from email.utils import parseaddr
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+from urllib.error import HTTPError, URLError
+from werkzeug.utils import secure_filename
 
 from flask import Flask, request, jsonify, g
 from flask_sqlalchemy import SQLAlchemy
@@ -442,72 +445,162 @@ def build_pdf(title: str, content: str) -> bytes:
     return buf.getvalue()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Email helper (Ethereal SMTP)
+# Email helper (Resend)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-_smtp_credentials = None
+MAX_EMAIL_ATTACHMENT_BYTES = 5 * 1024 * 1024
+MAX_EMAIL_REQUEST_BYTES = 8 * 1024 * 1024
+EMAIL_PATTERN = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
+)
 
-def get_smtp_credentials():
-    """Fetch a fresh Ethereal test account the first time it's needed."""
-    global _smtp_credentials
-    if _smtp_credentials:
-        return _smtp_credentials
-    import urllib.request, urllib.error
+
+class EmailConfigurationError(Exception):
+    pass
+
+
+class EmailProviderError(Exception):
+    def __init__(self, message: str, status_code: int = 502):
+        super().__init__(message)
+        self.status_code = status_code
+
+
+def is_valid_email(value: str) -> bool:
+    if not isinstance(value, str) or len(value) > 254 or value.count("@") != 1:
+        return False
+    local_part, domain = value.rsplit("@", 1)
+    return (
+        0 < len(local_part) <= 64
+        and not local_part.startswith(".")
+        and not local_part.endswith(".")
+        and ".." not in local_part
+        and len(domain) <= 253
+        and bool(EMAIL_PATTERN.fullmatch(value))
+    )
+
+
+def validate_email_attachment(attachment: dict) -> dict:
+    if not isinstance(attachment, dict):
+        raise ValueError("Choose a valid PDF, DOCX, or TXT attachment.")
+
+    raw_filename = attachment.get("filename")
+    raw_content_type = attachment.get("contentType")
+    encoded_content = attachment.get("contentBase64")
+    if not all(isinstance(value, str) and value.strip() for value in (
+        raw_filename, raw_content_type, encoded_content,
+    )):
+        raise ValueError("The attachment is incomplete.")
+
+    if len(encoded_content) > 7_000_000:
+        raise OverflowError("Attachments must be 5 MB or smaller.")
     try:
-        req = urllib.request.Request(
-            "https://api.nodemailer.com/user",
-            data=b"",
-            method="POST",
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            data = json.loads(resp.read())
-        _smtp_credentials = {
-            "host": data["smtp"]["host"],
-            "port": data["smtp"]["port"],
-            "user": data["user"],
-            "pass": data["pass"],
-            "web": data["web"],
-        }
-        return _smtp_credentials
-    except Exception:
-        return None
+        file_bytes = base64.b64decode(encoded_content, validate=True)
+    except (ValueError, TypeError):
+        raise ValueError("The attachment could not be read. Please choose it again.")
+    if not file_bytes:
+        raise ValueError("The attachment is empty.")
+    if len(file_bytes) > MAX_EMAIL_ATTACHMENT_BYTES:
+        raise OverflowError("Attachments must be 5 MB or smaller.")
 
-def send_email_smtp(to: str, subject: str, body: str) -> str | None:
-    """Send via Ethereal SMTP; returns preview URL or None."""
-    creds = get_smtp_credentials()
-    if not creds:
-        return None
+    filename = secure_filename(raw_filename.replace("\\", "/").rsplit("/", 1)[-1])
+    extension = os.path.splitext(filename)[1].lower()
+    allowed_types = {
+        ".pdf": {"application/pdf", "application/octet-stream"},
+        ".docx": {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/octet-stream",
+            "application/zip",
+        },
+        ".txt": {"text/plain", "application/octet-stream"},
+    }
+    if extension not in allowed_types:
+        raise ValueError("Only PDF, DOCX, or TXT attachments are allowed.")
+    content_type = raw_content_type.split(";", 1)[0].strip().lower()
+    if content_type not in allowed_types[extension]:
+        raise ValueError("The attachment type does not match its file extension.")
+
+    if extension == ".pdf":
+        if not file_bytes.startswith(b"%PDF-"):
+            raise ValueError("This file is not a valid PDF.")
+    elif extension == ".docx":
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+                entries = archive.infolist()
+                names = {entry.filename for entry in entries}
+                if (
+                    len(entries) > 1000
+                    or sum(entry.file_size for entry in entries) > 20 * 1024 * 1024
+                    or "[Content_Types].xml" not in names
+                    or "word/document.xml" not in names
+                    or any(name.lower().endswith("vbaproject.bin") for name in names)
+                ):
+                    raise ValueError("This file is not a supported DOCX document.")
+        except (zipfile.BadZipFile, OSError):
+            raise ValueError("This file is not a valid DOCX document.")
+    else:
+        try:
+            decoded_text = file_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            raise ValueError("Text attachments must use UTF-8 encoding.")
+        if "\x00" in decoded_text:
+            raise ValueError("This file is not a valid text document.")
+
+    return {
+        "filename": filename or "attachment" + extension,
+        "content": base64.b64encode(file_bytes).decode("ascii"),
+    }
+
+
+def send_email_resend(to: str, subject: str, body: str, attachments: list[dict]) -> str | None:
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    configured_sender = os.environ.get("RESEND_FROM_EMAIL", "").strip()
+    sender_address = parseaddr(configured_sender)[1]
+    if not api_key:
+        raise EmailConfigurationError("Email sending is not configured yet.")
+    if (
+        not configured_sender
+        or "\r" in configured_sender
+        or "\n" in configured_sender
+        or "," in configured_sender
+        or ";" in configured_sender
+        or not is_valid_email(sender_address)
+    ):
+        raise EmailConfigurationError("The configured email sender address is invalid.")
+
+    payload = {
+        "from": configured_sender,
+        "to": [to],
+        "subject": subject,
+        "text": body,
+    }
+    if attachments:
+        payload["attachments"] = attachments
+
+    req = Request(
+        "https://api.resend.com/emails",
+        data=json.dumps(payload).encode("utf-8"),
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": "LegalGPT/1.0",
+        },
+    )
     try:
-        msg = MIMEMultipart("alternative")
-        msg["From"] = f"LegalGPT <{creds['user']}>"
-        msg["To"]   = to
-        msg["Subject"] = subject
-        html = f"""<div style="font-family:Georgia,serif;max-width:700px;margin:auto;padding:32px;color:#1a1a2e">
-            <div style="border-bottom:3px solid #1a1a2e;padding-bottom:16px;margin-bottom:24px">
-              <h2 style="margin:0;color:#1a1a2e">LegalGPT</h2>
-              <p style="margin:4px 0 0;font-size:12px;color:#666">AI-Powered Legal Assistant</p>
-            </div>
-            <div style="white-space:pre-wrap;font-size:14px;line-height:1.7">{body}</div>
-            <div style="margin-top:32px;padding-top:16px;border-top:1px solid #ddd;font-size:11px;color:#999">
-              This email was sent via LegalGPT. This system provides AI-assisted legal information, not professional legal advice.
-            </div></div>"""
-        msg.attach(MIMEText(body, "plain"))
-        msg.attach(MIMEText(html, "html"))
+        with urlopen(req, timeout=20) as response:
+            response_data = json.loads(response.read().decode("utf-8"))
+    except HTTPError as exc:
+        app.logger.warning("Resend rejected email request with HTTP %s", exc.code)
+        raise EmailProviderError("The email provider rejected the message.", 502)
+    except (URLError, SocketTimeout, TimeoutError, OSError) as exc:
+        app.logger.warning("Resend email request failed: %s", type(exc).__name__)
+        raise EmailProviderError("The email provider did not respond in time.", 504)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise EmailProviderError("The email provider returned an invalid response.", 502)
 
-        with smtplib.SMTP(creds["host"], creds["port"]) as s:
-            s.starttls()
-            s.login(creds["user"], creds["pass"])
-            s.send_message(msg)
-
-        # Build Ethereal preview URL
-        import urllib.parse
-        encoded = base64.b64encode(msg.as_bytes()).decode()
-        preview = f"{creds['web']}/message/{urllib.parse.quote(creds['user'])}"
-        return preview
-    except Exception as e:
-        app.logger.warning(f"SMTP send failed: {e}")
-        return None
+    return response_data.get("id") if isinstance(response_data, dict) else None
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Routes — Auth
@@ -778,36 +871,145 @@ def download_pdf(draft_id):
     )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Routes — Email (SMTP)
+# Routes — Email (Resend)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def log_email_attempt(user_id: int, status: str, recipient: str, subject: str, detail: str = ""):
+    audit = {
+        "status": status,
+        "recipient": (recipient or "")[:254],
+        "subject": (subject or "")[:500],
+    }
+    if detail:
+        audit["detail"] = detail[:300]
+    log_action(
+        "email_sent" if status == "sent" else "email_failed",
+        user_id,
+        json.dumps(audit, ensure_ascii=False),
+    )
+
 
 @app.route("/api/send-email", methods=["POST"])
 @require_auth
 def send_email():
-    data = request.get_json() or {}
-    recipient = data.get("recipientEmail")
-    subject   = data.get("subject")
-    body      = data.get("body")
-    draft_id  = data.get("draftId")
-    if not all([recipient, subject, body]):
-        return jsonify({"error": "Recipient email, subject and body are required"}), 400
+    if request.content_length and request.content_length > MAX_EMAIL_REQUEST_BYTES:
+        log_email_attempt(g.user.id, "failed", "", "", "Request exceeds the 8 MB limit")
+        return jsonify({"error": "The email attachment is too large. The maximum request size is 8 MB."}), 413
 
-    preview_url = send_email_smtp(recipient, subject, body)
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        log_email_attempt(g.user.id, "failed", "", "", "Invalid JSON request")
+        return jsonify({"error": "Enter a recipient, subject, and message before sending."}), 400
+
+    recipient_value = data.get("recipientEmail")
+    subject_value = data.get("subject")
+    body_value = data.get("body")
+    recipient = recipient_value.strip() if isinstance(recipient_value, str) else ""
+    subject = subject_value.strip() if isinstance(subject_value, str) else ""
+    body = body_value.strip() if isinstance(body_value, str) else ""
+
+    if not is_valid_email(recipient):
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Invalid recipient address")
+        return jsonify({"error": "Enter a valid recipient email address."}), 400
+    if not subject:
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Missing subject")
+        return jsonify({"error": "Enter an email subject."}), 400
+    if len(subject) > 500 or "\r" in subject or "\n" in subject:
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Invalid subject")
+        return jsonify({"error": "The subject must be 500 characters or fewer and cannot contain line breaks."}), 400
+    if not body:
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Missing message")
+        return jsonify({"error": "Enter a message before sending."}), 400
+    if len(body) > 100000:
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Message exceeds the size limit")
+        return jsonify({"error": "The message is too long. Keep it under 100,000 characters."}), 400
+
+    draft_id = data.get("draftId")
+    if draft_id is not None and (
+        isinstance(draft_id, bool) or not isinstance(draft_id, int) or draft_id < 1
+    ):
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Invalid generated document ID")
+        return jsonify({"error": "Choose a valid generated document."}), 400
+
+    attachments = []
+    attachment = data.get("attachment")
+    if attachment is not None:
+        try:
+            attachments.append(validate_email_attachment(attachment))
+        except OverflowError as exc:
+            log_email_attempt(g.user.id, "failed", recipient, subject, str(exc))
+            return jsonify({"error": str(exc)}), 413
+        except ValueError as exc:
+            log_email_attempt(g.user.id, "failed", recipient, subject, str(exc))
+            return jsonify({"error": str(exc)}), 400
+
+    if draft_id is not None:
+        draft = GeneratedDraft.query.filter_by(id=draft_id, user_id=g.user.id).first()
+        if not draft:
+            log_email_attempt(g.user.id, "failed", recipient, subject, "Generated document not found")
+            return jsonify({"error": "That generated document could not be found in your account."}), 404
+        try:
+            pdf_bytes = build_pdf(draft.title, draft.content)
+        except Exception:
+            app.logger.exception("Could not build generated-document email attachment")
+            log_email_attempt(g.user.id, "failed", recipient, subject, "PDF generation failed")
+            return jsonify({"error": "The generated document could not be prepared as a PDF."}), 500
+        if len(pdf_bytes) > MAX_EMAIL_ATTACHMENT_BYTES:
+            log_email_attempt(g.user.id, "failed", recipient, subject, "Generated PDF exceeds the 5 MB limit")
+            return jsonify({"error": "The generated PDF is too large to attach (maximum 5 MB)."}), 413
+        filename = secure_filename(draft.title) or "legal-document"
+        attachments.insert(0, {
+            "filename": f"{filename[:180]}.pdf",
+            "content": base64.b64encode(pdf_bytes).decode("ascii"),
+        })
 
     email = SentEmail(
-        recipient_email=recipient, subject=subject, body=body,
-        draft_id=draft_id, status="sent", user_id=g.user.id,
+        recipient_email=recipient,
+        subject=subject,
+        body=body,
+        draft_id=draft_id,
+        status="pending",
+        user_id=g.user.id,
     )
     db.session.add(email)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        app.logger.exception("Could not record pending email attempt")
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Email audit record could not be saved")
+        return jsonify({"error": "The email could not be recorded. Please try again."}), 500
 
-    log_action("email_sent", g.user.id, f"Email to: {recipient}")
+    try:
+        send_email_resend(recipient, subject, body, attachments)
+    except EmailConfigurationError as exc:
+        email.status = "failed"
+        db.session.commit()
+        log_email_attempt(g.user.id, "failed", recipient, subject, str(exc))
+        return jsonify({"error": str(exc)}), 503
+    except EmailProviderError as exc:
+        email.status = "failed"
+        db.session.commit()
+        log_email_attempt(g.user.id, "failed", recipient, subject, str(exc))
+        if exc.status_code == 504:
+            return jsonify({"error": "The email provider timed out. Please try again shortly."}), 504
+        return jsonify({
+            "error": "The email provider could not send this message. Check the verified sender setup and try again."
+        }), 502
+
+    email.status = "sent"
+    email.sent_at = datetime.datetime.utcnow()
+    db.session.commit()
+    log_email_attempt(g.user.id, "sent", recipient, subject)
 
     return jsonify({
-        "id": email.id, "recipientEmail": email.recipient_email,
-        "subject": email.subject, "body": email.body,
-        "draftId": email.draft_id, "sentAt": email.sent_at.isoformat(),
-        "status": email.status, "previewUrl": preview_url,
+        "id": email.id,
+        "recipientEmail": email.recipient_email,
+        "subject": email.subject,
+        "body": email.body,
+        "draftId": email.draft_id,
+        "sentAt": email.sent_at.isoformat(),
+        "status": email.status,
     })
 
 @app.route("/api/emails", methods=["GET"])
@@ -849,7 +1051,7 @@ def dashboard_summary():
     doc_count   = Document.query.filter_by(user_id=uid).count()
     chat_count  = ChatHistory.query.filter_by(user_id=uid).count()
     draft_count = GeneratedDraft.query.filter_by(user_id=uid).count()
-    email_count = SentEmail.query.filter_by(user_id=uid).count()
+    email_count = SentEmail.query.filter_by(user_id=uid, status="sent").count()
 
     recent_docs   = Document.query.filter_by(user_id=uid).limit(3).all()
     recent_chats  = ChatHistory.query.filter_by(user_id=uid, role="user").limit(3).all()
@@ -883,7 +1085,7 @@ def admin_stats():
         "totalDocuments": Document.query.count(),
         "totalQueries":   ChatHistory.query.count(),
         "generatedPdfs":  GeneratedDraft.query.count(),
-        "sentEmails":     SentEmail.query.count(),
+        "sentEmails":     SentEmail.query.filter_by(status="sent").count(),
         "systemActivity": [{
             "id": l.id, "action": l.action, "userId": l.user_id,
             "details": l.details, "createdAt": l.created_at.isoformat(),

@@ -1571,7 +1571,7 @@ export const sendEmail = async (emailInput: EmailInput, options?: RequestInit): 
 
 
 
-export const getSendEmailMutationOptions = <TError = ErrorType<unknown>,
+export const getSendEmailMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendEmail>>, TError,{data: BodyType<EmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof sendEmail>>, TError,{data: BodyType<EmailInput>}, TContext> => {
 
@@ -1600,12 +1600,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type SendEmailMutationResult = NonNullable<Awaited<ReturnType<typeof sendEmail>>>
     export type SendEmailMutationBody = BodyType<EmailInput>
-    export type SendEmailMutationError = ErrorType<unknown>
+    export type SendEmailMutationError = ErrorType<void>
 
     /**
  * @summary Send legal letter by email
  */
-export const useSendEmail = <TError = ErrorType<unknown>,
+export const useSendEmail = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sendEmail>>, TError,{data: BodyType<EmailInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof sendEmail>>,

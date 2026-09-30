@@ -27,6 +27,7 @@ export * from './documentGenerationInputDocumentType';
 export * from './documentInput';
 export * from './documentStatus';
 export * from './emailInput';
+export * from './emailInputAttachment';
 export * from './errorResponse';
 export * from './generatedDraft';
 export * from './healthStatus';

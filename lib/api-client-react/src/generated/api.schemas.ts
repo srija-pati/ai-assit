@@ -237,12 +237,32 @@ export interface AdvocateSearchResponse {
   results: NearbyAdvocate[];
 }
 
+/**
+ * Optional PDF, DOCX, or TXT file encoded as base64.
+ */
+export type EmailInputAttachment = {
+  /** @maxLength 255 */
+  filename: string;
+  /** @maxLength 100 */
+  contentType: string;
+  /** @maxLength 6990508 */
+  contentBase64: string;
+};
+
 export interface EmailInput {
+  /** @maxLength 254 */
   recipientEmail: string;
+  /** @maxLength 500 */
   subject: string;
+  /**
+     * @minLength 1
+     * @maxLength 100000
+     */
   body: string;
-  /** @nullable */
-  draftId?: number | null;
+  /** @minimum 1 */
+  draftId?: number;
+  /** Optional PDF, DOCX, or TXT file encoded as base64. */
+  attachment?: EmailInputAttachment;
 }
 
 export type SentEmailStatus = typeof SentEmailStatus[keyof typeof SentEmailStatus];

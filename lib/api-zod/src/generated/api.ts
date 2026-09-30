@@ -353,11 +353,31 @@ export const GetAdvocateResponse = zod.object({
 /**
  * @summary Send legal letter by email
  */
+export const sendEmailBodyRecipientEmailMax = 254;
+
+export const sendEmailBodySubjectMax = 500;
+
+export const sendEmailBodyBodyMax = 100000;
+
+
+export const sendEmailBodyAttachmentFilenameMax = 255;
+
+export const sendEmailBodyAttachmentContentTypeMax = 100;
+
+export const sendEmailBodyAttachmentContentBase64Max = 6990508;
+
+
+
 export const SendEmailBody = zod.object({
-  "recipientEmail": zod.string(),
-  "subject": zod.string(),
-  "body": zod.string(),
-  "draftId": zod.number().nullish()
+  "recipientEmail": zod.string().email().max(sendEmailBodyRecipientEmailMax),
+  "subject": zod.string().max(sendEmailBodySubjectMax),
+  "body": zod.string().min(1).max(sendEmailBodyBodyMax),
+  "draftId": zod.number().min(1).optional(),
+  "attachment": zod.object({
+  "filename": zod.string().max(sendEmailBodyAttachmentFilenameMax),
+  "contentType": zod.string().max(sendEmailBodyAttachmentContentTypeMax),
+  "contentBase64": zod.string().max(sendEmailBodyAttachmentContentBase64Max)
+}).optional().describe('Optional PDF, DOCX, or TXT file encoded as base64.')
 })
 
 export const SendEmailResponse = zod.object({

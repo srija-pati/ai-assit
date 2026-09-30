@@ -40,6 +40,7 @@ export default function GeneratePage() {
 
   const [generatedPreview, setGeneratedPreview] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState<string>("");
+  const [generatedDraftId, setGeneratedDraftId] = useState<number | null>(null);
 
   const handleDownloadPDF = () => {
     if (!generatedPreview) return;
@@ -83,6 +84,7 @@ export default function GeneratePage() {
           toast({ title: "Draft generated", description: "Document successfully generated." });
           setGeneratedPreview(data.content);
           setPreviewTitle(data.title ?? "");
+          setGeneratedDraftId(data.id);
           queryClient.invalidateQueries({ queryKey: getListDraftsQueryKey() });
         },
         onError: () => {
@@ -240,8 +242,8 @@ export default function GeneratePage() {
                       <Download className="w-4 h-4 mr-2" /> PDF
                     </Button>
                     <Button size="sm" disabled={!generatedPreview} asChild>
-                      <Link href="/dashboard/email">
-                         <Send className="w-4 h-4 mr-2" /> Email
+                      <Link href={generatedDraftId ? `/dashboard/email?draftId=${generatedDraftId}` : "/dashboard/email"}>
+                         <Send className="w-4 h-4 mr-2" /> Send by Email
                       </Link>
                     </Button>
                   </div>
@@ -295,8 +297,17 @@ export default function GeneratePage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <Button variant="outline" size="sm" onClick={() => setGeneratedPreview(draft.content)}>
+                        <Button variant="outline" size="sm" onClick={() => {
+                          setGeneratedPreview(draft.content);
+                          setPreviewTitle(draft.title);
+                          setGeneratedDraftId(draft.id);
+                        }}>
                           View
+                        </Button>
+                        <Button size="sm" asChild>
+                          <Link href={`/dashboard/email?draftId=${draft.id}`}>
+                            <Send className="w-4 h-4 mr-1.5" /> Send by Email
+                          </Link>
                         </Button>
                         <Button variant="ghost" size="icon" className="text-destructive hover:bg-destructive/10" onClick={() => handleDelete(draft.id)}>
                           <Trash2 className="w-4 h-4" />

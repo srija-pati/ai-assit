@@ -1,0 +1,175 @@
+Modify the AI Legal application so that **every authenticated user, including normal users and administrators, can send emails to any valid recipient email address**.
+
+### Requirements
+
+1. **Email access for all logged-in users**
+
+   * Any authenticated user should have access to a "Send Email" feature.
+   * This must not be restricted to admins.
+   * Guests/non-logged-in users must not be able to send emails.
+
+2. **Recipient field**
+
+   * Add a required `To Email` field.
+   * The user should be able to enter any valid recipient email address.
+   * Validate the email format before sending.
+   * Display a clear error for invalid email addresses.
+
+3. **Email fields**
+   Provide:
+
+   * To Email
+   * Subject
+   * Message/Body
+   * Optional attachment
+
+4. **PDF/document attachment**
+
+   * Allow users to attach generated legal documents/PDFs from the application.
+   * If a generated legal document is being viewed, provide a "Send by Email" button.
+   * The generated PDF should be attached automatically when the user chooses this option.
+
+5. **Resend integration**
+
+   * Use the configured Resend API credentials.
+   * Read the API key and sender email from environment variables.
+   * Never expose the Resend API key in frontend JavaScript.
+   * The frontend must call the Flask backend, and the backend must communicate with Resend.
+
+6. **Environment variables**
+   Use:
+
+   `RESEND_API_KEY`
+
+   `RESEND_FROM_EMAIL`
+
+   Do not hard-code credentials in Python, JavaScript, HTML, or templates.
+
+7. **Backend API**
+   Create or modify an endpoint similar to:
+
+   `POST /api/send-email`
+
+   It should:
+
+   * Require authentication.
+   * Accept recipient email, subject, message and optional attachment/document ID.
+   * Validate the recipient.
+   * Send the email through Resend.
+   * Return a success response when the email is sent.
+   * Return a clear error response when sending fails.
+
+8. **Security**
+
+   * Only authenticated users can use the email endpoint.
+   * Never allow users to modify the configured sender email.
+   * Never expose the Resend API key to users.
+   * Validate and sanitize all input.
+   * Prevent users from sending arbitrary executable files as attachments.
+   * Allow safe document formats such as PDF/DOCX/TXT according to the application's existing upload rules.
+   * Log email-sending activity for audit purposes, including the logged-in user, recipient, date/time, subject, and success/failure status.
+   * Do not store the Resend API key in the database.
+
+9. **Admin and normal-user behavior**
+
+   Both roles must have the same ability to send emails:
+
+   `Normal User → Send Email → Any valid recipient`
+
+   `Admin → Send Email → Any valid recipient`
+
+   Do not add an admin-only restriction to this feature.
+
+10. **Frontend**
+    Add a visible "Send Email" option in the authenticated user's dashboard.
+
+    The interface should contain:
+
+    * To Email
+    * Subject
+    * Message
+    * Attachment / Select Generated Document
+    * Send Email button
+
+    Show:
+
+    * Sending state
+    * Success message
+    * Error message
+
+11. **Generated document integration**
+    On the generated legal document page, add:
+
+    `Send by Email`
+
+    When clicked:
+
+    * Open the email form.
+    * Automatically select the generated document.
+    * Allow the user to enter any recipient.
+    * Send the generated PDF as an attachment.
+
+12. **Do not break existing features**
+    Preserve:
+
+    * Registration
+    * Login
+    * User authentication
+    * Admin dashboard
+    * Document upload
+    * Legal document generation
+    * PDF generation
+    * Chat
+    * Location functionality
+    * Existing database
+    * Existing UI
+
+13. **Error handling**
+    Handle:
+
+    * Invalid recipient
+    * Missing subject
+    * Empty message
+    * Missing Resend API key
+    * Invalid sender configuration
+    * Resend API failure
+    * Attachment not found
+    * Attachment too large
+    * Network/API timeout
+
+    Display user-friendly error messages instead of raw Python/server errors.
+
+14. **Testing**
+    Test the complete flow using:
+
+    * Normal user account
+    * Admin account
+    * Different recipient email addresses
+    * Email with no attachment
+    * Email with generated PDF attachment
+    * Invalid email address
+    * Missing required fields
+    * Resend API failure
+
+15. **Final verification**
+    After implementation, verify that:
+
+    `Normal User Login`
+    → `Dashboard`
+    → `Send Email`
+    → `Enter any valid recipient`
+    → `Enter subject/message`
+    → `Attach generated PDF`
+    → `Send`
+    → `Email successfully delivered`
+
+    And:
+
+    `Admin Login`
+    → `Dashboard`
+    → `Send Email`
+    → `Enter any valid recipient`
+    → `Send`
+    → `Email successfully delivered`
+
+    Make the implementation production-safe and do not remove or disable any existing functionality.

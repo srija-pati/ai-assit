@@ -5,11 +5,20 @@
  * LegalGPT API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { EmailInputAttachment } from './emailInputAttachment';
 
 export interface EmailInput {
+  /** @maxLength 254 */
   recipientEmail: string;
+  /** @maxLength 500 */
   subject: string;
+  /**
+     * @minLength 1
+     * @maxLength 100000
+     */
   body: string;
-  /** @nullable */
-  draftId?: number | null;
+  /** @minimum 1 */
+  draftId?: number;
+  /** Optional PDF, DOCX, or TXT file encoded as base64. */
+  attachment?: EmailInputAttachment;
 }

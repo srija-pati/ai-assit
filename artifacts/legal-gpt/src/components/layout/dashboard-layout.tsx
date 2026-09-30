@@ -36,7 +36,7 @@ export function DashboardLayout({ children }: { children: ReactNode }) {
     { title: "AI Chat", href: "/dashboard/chat", icon: MessageSquare },
     { title: "Generate Document", href: "/dashboard/generate", icon: FileText },
     { title: "Advocate Search", href: "/dashboard/advocates", icon: Users },
-    { title: "Send Letter", href: "/dashboard/email", icon: Mail },
+    { title: "Send Email", href: "/dashboard/email", icon: Mail },
     { title: "History", href: "/dashboard/history", icon: History },
     { title: "Settings", href: "/dashboard/settings", icon: Settings },
   ];

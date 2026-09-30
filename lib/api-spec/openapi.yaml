@@ -424,6 +424,20 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SentEmail"
+        "400":
+          description: Invalid email input or attachment
+        "401":
+          description: Authentication required
+        "404":
+          description: Generated document not found
+        "413":
+          description: Attachment is too large
+        "502":
+          description: Email provider rejected the request
+        "503":
+          description: Email sender is not configured
+        "504":
+          description: Email provider timed out
 
   /emails:
     get:
@@ -849,12 +863,32 @@ components:
       properties:
         recipientEmail:
           type: string
+          format: email
+          maxLength: 254
         subject:
           type: string
+          maxLength: 500
         body:
           type: string
+          minLength: 1
+          maxLength: 100000
         draftId:
-          type: ["integer", "null"]
+          type: integer
+          minimum: 1
+        attachment:
+          type: object
+          description: Optional PDF, DOCX, or TXT file encoded as base64.
+          required: [filename, contentType, contentBase64]
+          properties:
+            filename:
+              type: string
+              maxLength: 255
+            contentType:
+              type: string
+              maxLength: 100
+            contentBase64:
+              type: string
+              maxLength: 6990508
 
     SentEmail:
       type: object

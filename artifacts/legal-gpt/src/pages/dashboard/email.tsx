@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { 
   useSendEmail,
@@ -14,63 +14,190 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Send, CheckCircle2, Clock, XCircle, Loader2, ExternalLink } from "lucide-react";
+import { Mail, Send, CheckCircle2, Clock, XCircle, Loader2, Paperclip, FileText } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024;
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+async function encodeAttachment(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return {
+    filename: file.name,
+    contentType: file.type || "application/octet-stream",
+    contentBase64: btoa(binary),
+  };
+}
+
+function getEmailErrorMessage(error: unknown): string {
+  if (error && typeof error === "object") {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object" && "error" in data) {
+      const message = (data as { error?: unknown }).error;
+      if (typeof message === "string") return message;
+    }
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length < 500) return message;
+  }
+  return "Email could not be sent. Check the recipient and try again.";
+}
 
 export default function EmailPage() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: drafts = [] } = useListDrafts({ query: { queryKey: getListDraftsQueryKey() } });
+  const {
+    data: drafts = [],
+    isLoading: draftsLoading,
+    isFetching: draftsFetching,
+  } = useListDrafts({ query: { queryKey: getListDraftsQueryKey() } });
   const { data: emails = [], isLoading: emailsLoading } = useListEmails({ query: { queryKey: getListEmailsQueryKey() } });
   const sendEmailMutation = useSendEmail();
 
+  const [requestedDraftId] = useState<number | null>(() => {
+    const rawId = new URLSearchParams(window.location.search).get("draftId");
+    const parsedId = rawId ? Number(rawId) : NaN;
+    return Number.isSafeInteger(parsedId) && parsedId > 0 ? parsedId : null;
+  });
+  const initialDraftApplied = useRef(false);
   const [recipient, setRecipient] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [draftId, setDraftId] = useState<number | null>(null);
-  const [lastPreviewUrl, setLastPreviewUrl] = useState<string | null>(null);
+  const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
+  const [formError, setFormError] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
+
+  useEffect(() => {
+    if (draftsLoading || draftsFetching || initialDraftApplied.current || !requestedDraftId) return;
+    initialDraftApplied.current = true;
+    const draft = drafts.find((item) => item.id === requestedDraftId);
+    if (!draft) {
+      setFormError("That generated document could not be found in your account.");
+      return;
+    }
+    setDraftId(draft.id);
+    setSubject(`Legal Document: ${draft.title}`);
+    setBody(draft.content);
+    const url = new URL(window.location.href);
+    url.searchParams.delete("draftId");
+    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+  }, [drafts, draftsFetching, draftsLoading, requestedDraftId]);
 
   const handleDraftSelect = (val: string) => {
+    if (val === "none") {
+      setDraftId(null);
+      return;
+    }
     const id = parseInt(val);
     setDraftId(id);
     const draft = drafts.find(d => d.id === id);
     if (draft) {
-      if (!subject) setSubject(`Legal Document: ${draft.title}`);
+      if (!subject.trim()) setSubject(`Legal Document: ${draft.title}`);
       setBody(draft.content);
     }
   };
 
-  const handleSend = (e: React.FormEvent) => {
+  const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!recipient || !subject || !body) return;
+    setFormError("");
+    setSuccessMessage("");
+
+    const normalizedRecipient = recipient.trim();
+    const normalizedSubject = subject.trim();
+    const normalizedBody = body.trim();
+    if (!EMAIL_PATTERN.test(normalizedRecipient)) {
+      setFormError("Enter a valid recipient email address.");
+      return;
+    }
+    if (!normalizedSubject) {
+      setFormError("Enter an email subject.");
+      return;
+    }
+    if (!normalizedBody) {
+      setFormError("Enter a message before sending.");
+      return;
+    }
+    if (attachmentFile && attachmentFile.size > MAX_ATTACHMENT_BYTES) {
+      setFormError("Attachments must be 5 MB or smaller.");
+      return;
+    }
+
+    let encodedAttachment;
+    try {
+      if (attachmentFile) encodedAttachment = await encodeAttachment(attachmentFile);
+    } catch {
+      setFormError("The attachment could not be read. Please choose it again.");
+      return;
+    }
 
     sendEmailMutation.mutate(
-      { data: { recipientEmail: recipient, subject, body, ...(draftId !== null ? { draftId } : {}) } },
+      {
+        data: {
+          recipientEmail: normalizedRecipient,
+          subject: normalizedSubject,
+          body: normalizedBody,
+          ...(draftId !== null ? { draftId } : {}),
+          ...(encodedAttachment ? { attachment: encodedAttachment } : {}),
+        },
+      },
       {
         onSuccess: (data) => {
-          // previewUrl may be returned from Ethereal SMTP
-          const preview = (data as any).previewUrl as string | null;
-          setLastPreviewUrl(preview ?? null);
-
+          const message = `Email sent to ${data.recipientEmail}.`;
+          setSuccessMessage(message);
           toast({
-            title: "Email Sent ✓",
-            description: preview
-              ? "Email delivered via demo SMTP. Click 'View in Inbox' to see it."
-              : "Email recorded in sent communications.",
+            title: "Email sent",
+            description: message,
           });
           setRecipient("");
           setSubject("");
           setBody("");
           setDraftId(null);
+          setAttachmentFile(null);
+          const fileInput = document.getElementById("email-attachment") as HTMLInputElement | null;
+          if (fileInput) fileInput.value = "";
           queryClient.invalidateQueries({ queryKey: getListEmailsQueryKey() });
         },
-        onError: (err) => {
-          toast({ title: "Failed to send", description: "An error occurred while sending the email.", variant: "destructive" });
+        onError: (error) => {
+          const message = getEmailErrorMessage(error);
+          setFormError(message);
+          queryClient.invalidateQueries({ queryKey: getListEmailsQueryKey() });
+          toast({ title: "Email not sent", description: message, variant: "destructive" });
         }
       }
     );
   };
+
+  const handleAttachmentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setFormError("");
+    setSuccessMessage("");
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setAttachmentFile(null);
+      return;
+    }
+    const extension = file.name.split(".").pop()?.toLowerCase();
+    if (!["pdf", "docx", "txt"].includes(extension || "")) {
+      event.target.value = "";
+      setAttachmentFile(null);
+      setFormError("Only PDF, DOCX, or TXT attachments are allowed.");
+      return;
+    }
+    if (file.size > MAX_ATTACHMENT_BYTES) {
+      event.target.value = "";
+      setAttachmentFile(null);
+      setFormError("Attachments must be 5 MB or smaller.");
+      return;
+    }
+    setAttachmentFile(file);
+  };
+
+  const selectedDraft = drafts.find((draft) => draft.id === draftId);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -84,20 +211,19 @@ export default function EmailPage() {
   return (
     <div className="space-y-8 max-w-6xl mx-auto">
       <div>
-        <h1 className="text-3xl font-serif font-bold text-foreground">Send Formal Letters</h1>
-        <p className="text-muted-foreground">Email your generated drafts or write custom letters directly to recipients.</p>
+        <h1 className="text-3xl font-serif font-bold text-foreground">Send Email</h1>
+        <p className="text-muted-foreground">Send a message to any valid email address, with an optional generated PDF or document attachment.</p>
       </div>
 
-      {lastPreviewUrl && (
-        <div className="flex items-center gap-3 p-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+      {successMessage && (
+        <div role="status" className="flex items-center gap-3 p-4 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-          <div className="flex-1">
-            <p className="text-sm font-medium text-foreground">Email sent successfully via demo SMTP</p>
-            <p className="text-xs text-muted-foreground mt-0.5">This is a demo environment — emails are captured at Ethereal (test inbox), not delivered to real inboxes.</p>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => window.open(lastPreviewUrl, '_blank')} className="shrink-0">
-            <ExternalLink className="w-3.5 h-3.5 mr-1.5" /> View in Inbox
-          </Button>
+          <p className="text-sm font-medium text-foreground">{successMessage}</p>
+        </div>
+      )}
+      {formError && (
+        <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+          {formError}
         </div>
       )}
 
@@ -105,64 +231,97 @@ export default function EmailPage() {
         <Card>
           <CardHeader>
             <CardTitle>Compose Email</CardTitle>
-            <CardDescription>Send a legally sound communication to your recipient.</CardDescription>
+            <CardDescription>Emails are sent from the application’s configured sender address.</CardDescription>
           </CardHeader>
           <form onSubmit={handleSend}>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <Label>Load from Draft (Optional)</Label>
+                <Label>Select Generated Document (Optional)</Label>
                 <Select value={draftId?.toString() || ""} onValueChange={handleDraftSelect}>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a saved draft..." />
+                    <SelectValue placeholder="Choose a saved legal document..." />
                   </SelectTrigger>
                   <SelectContent>
                     {drafts.map(draft => (
                       <SelectItem key={draft.id} value={draft.id.toString()}>{draft.title}</SelectItem>
                     ))}
-                    {drafts.length === 0 && <SelectItem value="none" disabled>No drafts available</SelectItem>}
+                    <SelectItem value="none">No generated document</SelectItem>
                   </SelectContent>
                 </Select>
+                {selectedDraft && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <FileText className="w-3.5 h-3.5" />
+                    {selectedDraft.title} will be attached as a PDF.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-2">
-                <Label>Recipient Email</Label>
+                <Label htmlFor="recipient-email">To Email</Label>
                 <Input 
+                  id="recipient-email"
                   type="email" 
+                  autoComplete="email"
                   value={recipient} 
-                  onChange={(e) => setRecipient(e.target.value)} 
+                  onChange={(e) => { setRecipient(e.target.value); setFormError(""); }}
                   placeholder="lawyer@example.com" 
                   required 
+                  maxLength={254}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label>Subject</Label>
+                <Label htmlFor="email-attachment">Attachment (Optional)</Label>
+                <Input
+                  id="email-attachment"
+                  type="file"
+                  accept=".pdf,.docx,.txt,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                  onChange={handleAttachmentChange}
+                  aria-describedby="email-attachment-help"
+                />
+                <p id="email-attachment-help" className="text-xs text-muted-foreground">
+                  PDF, DOCX, or TXT only; maximum 5 MB. You can attach a file in addition to a generated PDF.
+                </p>
+                {attachmentFile && (
+                  <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Paperclip className="w-3.5 h-3.5" />
+                    {attachmentFile.name} ({(attachmentFile.size / (1024 * 1024)).toFixed(2)} MB)
+                  </p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email-subject">Subject</Label>
                 <Input 
+                  id="email-subject"
                   value={subject} 
-                  onChange={(e) => setSubject(e.target.value)} 
+                  onChange={(e) => { setSubject(e.target.value); setFormError(""); }}
                   placeholder="Notice of..." 
                   required 
+                  maxLength={500}
                 />
               </div>
 
               <div className="space-y-2">
-                <Label>Message Body</Label>
+                <Label htmlFor="email-body">Message</Label>
                 <Textarea 
+                  id="email-body"
                   value={body} 
-                  onChange={(e) => setBody(e.target.value)} 
+                  onChange={(e) => { setBody(e.target.value); setFormError(""); }}
                   className="min-h-[250px] font-serif text-sm" 
                   required 
+                  maxLength={100000}
                 />
               </div>
 
               <p className="text-xs text-muted-foreground bg-muted/40 rounded p-3">
-                <strong>Demo mode:</strong> Emails are sent via Ethereal test SMTP. After sending, click "View in Inbox" to see the captured email. No real delivery occurs.
+                Generated documents are converted to PDF on the server. The API key and sender address are never exposed to the browser.
               </p>
             </CardContent>
             <CardFooter className="border-t bg-muted/10 py-4 flex justify-end">
-              <Button type="submit" disabled={sendEmailMutation.isPending || !recipient || !subject || !body}>
+              <Button type="submit" disabled={sendEmailMutation.isPending}>
                 {sendEmailMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-                Send Email
+                {sendEmailMutation.isPending ? "Sending..." : "Send Email"}
               </Button>
             </CardFooter>
           </form>

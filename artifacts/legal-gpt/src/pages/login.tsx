@@ -39,7 +39,7 @@ export default function LoginPage() {
         setLocation("/dashboard");
       },
       onError: (error) => {
-        toast({ title: "Login failed", description: error.error?.error || "Invalid credentials", variant: "destructive" });
+        toast({ title: "Login failed", description: error.data?.error || "Invalid credentials", variant: "destructive" });
       }
     });
   };
@@ -54,7 +54,7 @@ export default function LoginPage() {
         setLocation("/dashboard");
       },
       onError: (error) => {
-        toast({ title: "Signup failed", description: error.error?.error || "Could not create account", variant: "destructive" });
+        toast({ title: "Signup failed", description: error.data?.error || "Could not create account", variant: "destructive" });
       }
     });
   };

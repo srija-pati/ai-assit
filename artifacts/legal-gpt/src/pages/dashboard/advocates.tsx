@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { searchNearbyAdvocates, type NearbyAdvocate } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,18 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface Lawyer {
-  id: number;
-  name: string;
-  address: string;
-  phone?: string;
-  website?: string;
-  lat: number;
-  lon: number;
-  osmType: string;
-  openingHours?: string;
-  detectedSpecialization?: string;
-}
+type Lawyer = NearbyAdvocate;
 
 // ─── Specialization config ────────────────────────────────────────────────────
 
@@ -63,23 +53,6 @@ const SPEC_KEYWORDS: Record<string, string[]> = {
   "human rights": ["human rights", "rights", "civil liberties"],
 };
 
-function detectSpecialization(name: string, tags: Record<string, string>): string | undefined {
-  const haystack = [
-    name,
-    tags["specialization"] || "",
-    tags["legal:specialization"] || "",
-    tags["description"] || "",
-    tags["name:en"] || "",
-  ].join(" ").toLowerCase();
-
-  for (const [spec, keywords] of Object.entries(SPEC_KEYWORDS)) {
-    if (keywords.some(kw => haystack.includes(kw))) {
-      return SPECIALIZATIONS.find(s => s.value === spec)?.label || spec;
-    }
-  }
-  return undefined;
-}
-
 function matchesSpecialization(lawyer: Lawyer, spec: string): boolean {
   if (spec === "all") return true;
   if (lawyer.detectedSpecialization) {
@@ -88,78 +61,6 @@ function matchesSpecialization(lawyer: Lawyer, spec: string): boolean {
   }
   const haystack = lawyer.name.toLowerCase() + " " + lawyer.address.toLowerCase();
   return (SPEC_KEYWORDS[spec] || []).some(kw => haystack.includes(kw));
-}
-
-// ─── OSM / Overpass helpers ───────────────────────────────────────────────────
-
-async function geocodeCity(city: string): Promise<{ lat: number; lon: number } | null> {
-  const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(city)}&format=json&limit=1`;
-  const res = await fetch(url, { headers: { "Accept-Language": "en" } });
-  const data = await res.json();
-  if (!data.length) return null;
-  return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-}
-
-async function fetchLawyers(lat: number, lon: number, radiusMeters: number): Promise<Lawyer[]> {
-  const query = `
-[out:json][timeout:30];
-(
-  node["office"="lawyer"](around:${radiusMeters},${lat},${lon});
-  node["office"="law_firm"](around:${radiusMeters},${lat},${lon});
-  node["office"="legal_office"](around:${radiusMeters},${lat},${lon});
-  node["office"="legal"](around:${radiusMeters},${lat},${lon});
-  node["office"="notary"](around:${radiusMeters},${lat},${lon});
-  way["office"="lawyer"](around:${radiusMeters},${lat},${lon});
-  way["office"="law_firm"](around:${radiusMeters},${lat},${lon});
-  way["office"="legal"](around:${radiusMeters},${lat},${lon});
-);
-out body center;
-`;
-
-  const res = await fetch("https://overpass-api.de/api/interpreter", {
-    method: "POST",
-    body: "data=" + encodeURIComponent(query),
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  });
-
-  if (!res.ok) throw new Error("Overpass API error");
-  const data = await res.json();
-
-  return (data.elements as any[])
-    .filter((el) => el.tags?.name)
-    .map((el) => {
-      const t = el.tags || {};
-      const addressParts = [
-        t["addr:housenumber"],
-        t["addr:street"],
-        t["addr:suburb"] || t["addr:neighbourhood"],
-        t["addr:city"] || t["addr:town"],
-        t["addr:state"],
-      ].filter(Boolean);
-
-      const elLat = el.lat ?? el.center?.lat;
-      const elLon = el.lon ?? el.center?.lon;
-
-      const osmType =
-        t.office === "law_firm" ? "Law Firm"
-        : t.office === "notary" ? "Notary"
-        : t.office === "legal" || t.office === "legal_office" ? "Legal Office"
-        : "Lawyer";
-
-      return {
-        id: el.id,
-        name: t.name,
-        address: addressParts.length > 0 ? addressParts.join(", ") : "Address not available",
-        phone: t.phone || t["contact:phone"],
-        website: t.website || t["contact:website"],
-        lat: elLat,
-        lon: elLon,
-        osmType,
-        openingHours: t.opening_hours,
-        detectedSpecialization: detectSpecialization(t.name, t),
-      } as Lawyer;
-    })
-    .filter((l) => l.lat && l.lon);
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -201,20 +102,30 @@ export default function AdvocatesPage() {
     ? allLawyers
     : allLawyers.filter(l => matchesSpecialization(l, specialization));
 
-  const runSearch = useCallback(async (lat: number, lon: number, label: string, currentRadius: string) => {
+  const runSearch = useCallback(async (
+    location: { city?: string; lat?: number; lon?: number },
+    currentRadius: string,
+  ) => {
     setLoading(true);
     setSearched(false);
-    setCenterCoords({ lat, lon });
-    setLocationLabel(label);
+    setAllLawyers([]);
     try {
-      const results = await fetchLawyers(lat, lon, parseInt(currentRadius));
-      setAllLawyers(results);
+      const response = await searchNearbyAdvocates({
+        ...location,
+        radiusMeters: parseInt(currentRadius, 10),
+      });
+      setAllLawyers(response.results);
+      setCenterCoords({ lat: response.centerLat, lon: response.centerLon });
+      setLocationLabel(response.locationLabel);
       setSearched(true);
-      if (results.length === 0) {
+      if (response.results.length === 0) {
         toast({ title: "No results", description: "No lawyers found in this area on OpenStreetMap. Try a larger radius." });
       }
-    } catch {
-      toast({ title: "Search failed", description: "Could not reach the location service. Please try again.", variant: "destructive" });
+    } catch (error) {
+      const description = error instanceof Error
+        ? error.message
+        : "Could not reach the location service. Please try again.";
+      toast({ title: "Search failed", description, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -229,15 +140,8 @@ export default function AdvocatesPage() {
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         const { latitude: lat, longitude: lon } = pos.coords;
-        try {
-          const res  = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`);
-          const data = await res.json();
-          const label = data.address?.city || data.address?.town || data.address?.village || "Your Location";
-          setCityInput(label);
-          await runSearch(lat, lon, label, radius);
-        } catch {
-          await runSearch(lat, lon, "Your Location", radius);
-        }
+        setCityInput("Your Location");
+        await runSearch({ lat, lon }, radius);
       },
       () => {
         setLoading(false);
@@ -252,12 +156,7 @@ export default function AdvocatesPage() {
       toast({ title: "Enter a location", description: "Type a city or area to search.", variant: "destructive" });
       return;
     }
-    const coords = await geocodeCity(cityInput.trim());
-    if (!coords) {
-      toast({ title: "Location not found", description: "Could not find that city. Try a different name.", variant: "destructive" });
-      return;
-    }
-    await runSearch(coords.lat, coords.lon, cityInput.trim(), radius);
+    await runSearch({ city: cityInput.trim() }, radius);
   };
 
   const openInMaps = (lawyer: Lawyer) => {

@@ -356,6 +356,37 @@ paths:
                 items:
                   $ref: "#/components/schemas/Advocate"
 
+  /advocates/search:
+    post:
+      operationId: searchNearbyAdvocates
+      tags: [advocates]
+      summary: Search OpenStreetMap for nearby legal professionals
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AdvocateSearchInput"
+      responses:
+        "200":
+          description: Nearby legal professionals
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdvocateSearchResponse"
+        "400":
+          description: Invalid search location or radius
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: OpenStreetMap search services are unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /advocates/{id}:
     get:
       operationId: getAdvocate
@@ -751,6 +782,66 @@ components:
           type: ["string", "null"]
         bio:
           type: ["string", "null"]
+
+    AdvocateSearchInput:
+      type: object
+      required: [radiusMeters]
+      properties:
+        city:
+          type: string
+          minLength: 1
+        lat:
+          type: number
+          minimum: -90
+          maximum: 90
+        lon:
+          type: number
+          minimum: -180
+          maximum: 180
+        radiusMeters:
+          type: integer
+          minimum: 1000
+          maximum: 50000
+
+    NearbyAdvocate:
+      type: object
+      required: [id, name, address, lat, lon, osmType]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        address:
+          type: string
+        lat:
+          type: number
+        lon:
+          type: number
+        osmType:
+          type: string
+        phone:
+          type: ["string", "null"]
+        website:
+          type: ["string", "null"]
+        openingHours:
+          type: ["string", "null"]
+        detectedSpecialization:
+          type: ["string", "null"]
+
+    AdvocateSearchResponse:
+      type: object
+      required: [centerLat, centerLon, locationLabel, results]
+      properties:
+        centerLat:
+          type: number
+        centerLon:
+          type: number
+        locationLabel:
+          type: string
+        results:
+          type: array
+          items:
+            $ref: "#/components/schemas/NearbyAdvocate"
 
     EmailInput:
       type: object

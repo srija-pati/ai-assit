@@ -193,6 +193,50 @@ export interface Advocate {
   bio?: string | null;
 }
 
+export interface AdvocateSearchInput {
+  /** @minLength 1 */
+  city?: string;
+  /**
+     * @minimum -90
+     * @maximum 90
+     */
+  lat?: number;
+  /**
+     * @minimum -180
+     * @maximum 180
+     */
+  lon?: number;
+  /**
+     * @minimum 1000
+     * @maximum 50000
+     */
+  radiusMeters: number;
+}
+
+export interface NearbyAdvocate {
+  id: string;
+  name: string;
+  address: string;
+  lat: number;
+  lon: number;
+  osmType: string;
+  /** @nullable */
+  phone?: string | null;
+  /** @nullable */
+  website?: string | null;
+  /** @nullable */
+  openingHours?: string | null;
+  /** @nullable */
+  detectedSpecialization?: string | null;
+}
+
+export interface AdvocateSearchResponse {
+  centerLat: number;
+  centerLon: number;
+  locationLabel: string;
+  results: NearbyAdvocate[];
+}
+
 export interface EmailInput {
   recipientEmail: string;
   subject: string;

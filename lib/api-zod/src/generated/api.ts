@@ -288,6 +288,47 @@ export const ListAdvocatesResponse = zod.array(ListAdvocatesResponseItem)
 
 
 /**
+ * @summary Search OpenStreetMap for nearby legal professionals
+ */
+
+export const searchNearbyAdvocatesBodyLatMin = -90;
+export const searchNearbyAdvocatesBodyLatMax = 90;
+
+export const searchNearbyAdvocatesBodyLonMin = -180;
+export const searchNearbyAdvocatesBodyLonMax = 180;
+
+export const searchNearbyAdvocatesBodyRadiusMetersMin = 1000;
+export const searchNearbyAdvocatesBodyRadiusMetersMax = 50000;
+
+
+
+export const SearchNearbyAdvocatesBody = zod.object({
+  "city": zod.string().min(1).optional(),
+  "lat": zod.number().min(searchNearbyAdvocatesBodyLatMin).max(searchNearbyAdvocatesBodyLatMax).optional(),
+  "lon": zod.number().min(searchNearbyAdvocatesBodyLonMin).max(searchNearbyAdvocatesBodyLonMax).optional(),
+  "radiusMeters": zod.number().min(searchNearbyAdvocatesBodyRadiusMetersMin).max(searchNearbyAdvocatesBodyRadiusMetersMax)
+})
+
+export const SearchNearbyAdvocatesResponse = zod.object({
+  "centerLat": zod.number(),
+  "centerLon": zod.number(),
+  "locationLabel": zod.string(),
+  "results": zod.array(zod.object({
+  "id": zod.string(),
+  "name": zod.string(),
+  "address": zod.string(),
+  "lat": zod.number(),
+  "lon": zod.number(),
+  "osmType": zod.string(),
+  "phone": zod.string().nullish(),
+  "website": zod.string().nullish(),
+  "openingHours": zod.string().nullish(),
+  "detectedSpecialization": zod.string().nullish()
+}))
+})
+
+
+/**
  * @summary Get advocate by ID
  */
 export const GetAdvocateParams = zod.object({

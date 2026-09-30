@@ -9,6 +9,8 @@
 export * from './adminLog';
 export * from './adminStats';
 export * from './advocate';
+export * from './advocateSearchInput';
+export * from './advocateSearchResponse';
 export * from './authResponse';
 export * from './chatMessage';
 export * from './chatMessageInput';
@@ -32,6 +34,7 @@ export * from './historyItem';
 export * from './historyItemType';
 export * from './listAdvocatesParams';
 export * from './loginInput';
+export * from './nearbyAdvocate';
 export * from './sentEmail';
 export * from './sentEmailStatus';
 export * from './signupInput';

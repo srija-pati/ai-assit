@@ -23,6 +23,8 @@ import type {
   AdminLog,
   AdminStats,
   Advocate,
+  AdvocateSearchInput,
+  AdvocateSearchResponse,
   AuthResponse,
   ChatMessage,
   ChatMessageInput,
@@ -1394,6 +1396,77 @@ export function useListAdvocates<TData = Awaited<ReturnType<typeof listAdvocates
 
 
 
+
+export const getSearchNearbyAdvocatesUrl = () => {
+
+
+
+
+  return `/api/advocates/search`
+}
+
+/**
+ * @summary Search OpenStreetMap for nearby legal professionals
+ */
+export const searchNearbyAdvocates = async (advocateSearchInput: AdvocateSearchInput, options?: RequestInit): Promise<AdvocateSearchResponse> => {
+
+  return customFetch<AdvocateSearchResponse>(getSearchNearbyAdvocatesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      advocateSearchInput,)
+  }
+);}
+
+
+
+
+export const getSearchNearbyAdvocatesMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchNearbyAdvocates>>, TError,{data: BodyType<AdvocateSearchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof searchNearbyAdvocates>>, TError,{data: BodyType<AdvocateSearchInput>}, TContext> => {
+
+const mutationKey = ['searchNearbyAdvocates'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof searchNearbyAdvocates>>, {data: BodyType<AdvocateSearchInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  searchNearbyAdvocates(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SearchNearbyAdvocatesMutationResult = NonNullable<Awaited<ReturnType<typeof searchNearbyAdvocates>>>
+    export type SearchNearbyAdvocatesMutationBody = BodyType<AdvocateSearchInput>
+    export type SearchNearbyAdvocatesMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Search OpenStreetMap for nearby legal professionals
+ */
+export const useSearchNearbyAdvocates = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof searchNearbyAdvocates>>, TError,{data: BodyType<AdvocateSearchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof searchNearbyAdvocates>>,
+        TError,
+        {data: BodyType<AdvocateSearchInput>},
+        TContext
+      > => {
+      return useMutation(getSearchNearbyAdvocatesMutationOptions(options));
+    }
 
 export const getGetAdvocateUrl = (id: number,) => {
 

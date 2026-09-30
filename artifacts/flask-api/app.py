@@ -5,8 +5,13 @@ import secrets
 import datetime
 import smtplib
 import json
+import math
+import threading
+import time
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 from flask import Flask, request, jsonify, g
 from flask_sqlalchemy import SQLAlchemy
@@ -917,14 +922,211 @@ def admin_reindex():
     return jsonify({"success": True, "message": f"Re-indexed {count} documents into ChromaDB vector store."})
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Routes — Advocates (pass-through, data served from OSM on frontend)
+# Routes — Advocates (live OpenStreetMap search)
 # ═══════════════════════════════════════════════════════════════════════════════
+
+_nominatim_cache: dict[str, tuple[float, tuple[float, float]]] = {}
+_nominatim_lock = threading.Lock()
+_nominatim_last_request = 0.0
+_overpass_cache: dict[tuple[float, float, int], tuple[float, list[dict]]] = {}
+
+
+def _geocode_city(city: str) -> tuple[float, float] | None:
+    global _nominatim_last_request
+    cache_key = city.strip().casefold()
+    cached = _nominatim_cache.get(cache_key)
+    now = time.monotonic()
+    if cached and now - cached[0] < 86400:
+        return cached[1]
+
+    params = urlencode({"q": city, "format": "json", "limit": 1})
+    req = Request(
+        f"https://nominatim.openstreetmap.org/search?{params}",
+        headers={"User-Agent": "LegalGPT/1.0", "Accept-Language": "en"},
+    )
+    try:
+        with _nominatim_lock:
+            wait = 1.0 - (time.monotonic() - _nominatim_last_request)
+            if wait > 0:
+                time.sleep(wait)
+            _nominatim_last_request = time.monotonic()
+            with urlopen(req, timeout=12) as response:
+                places = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        app.logger.warning("Location lookup failed: %s", type(exc).__name__)
+        raise RuntimeError("Location lookup is temporarily unavailable") from exc
+
+    if not places:
+        return None
+    coords = (float(places[0]["lat"]), float(places[0]["lon"]))
+    _nominatim_cache[cache_key] = (time.monotonic(), coords)
+    return coords
+
+
+def _fetch_overpass(lat: float, lon: float, radius_meters: int) -> list[dict]:
+    cache_key = (round(lat, 4), round(lon, 4), radius_meters)
+    cached = _overpass_cache.get(cache_key)
+    if cached and time.monotonic() - cached[0] < 900:
+        return cached[1]
+
+    query = f"""[out:json][timeout:15];
+(
+  nwr["office"~"^(lawyer|law_firm|legal_office|legal|notary)$"](around:{radius_meters},{lat},{lon});
+);
+out center tags 100;"""
+    payload = urlencode({"data": query}).encode()
+    endpoints = [
+        "https://overpass-api.de/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+        "https://overpass.private.coffee/api/interpreter",
+    ]
+    failures = []
+    for endpoint in endpoints:
+        req = Request(
+            endpoint,
+            data=payload,
+            headers={
+                "User-Agent": "LegalGPT/1.0",
+                "Content-Type": "application/x-www-form-urlencoded",
+            },
+            method="POST",
+        )
+        try:
+            with urlopen(req, timeout=20) as response:
+                result = json.loads(response.read().decode("utf-8"))
+            elements = result.get("elements", [])
+            _overpass_cache[cache_key] = (time.monotonic(), elements)
+            return elements
+        except Exception as exc:
+            failures.append(type(exc).__name__)
+            upstream_status = getattr(exc, "code", None)
+            app.logger.warning(
+                "Overpass endpoint failed (%s): %s",
+                endpoint,
+                f"HTTP {upstream_status}" if upstream_status else type(exc).__name__,
+            )
+    raise RuntimeError(", ".join(failures) or "No Overpass endpoint responded")
+
+
+@app.route("/api/advocates/search", methods=["POST"])
+@require_auth
+def search_nearby_advocates():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "A search location is required"}), 400
+
+    city = data.get("city")
+    city = city.strip()[:200] if isinstance(city, str) else ""
+    try:
+        radius_meters = int(data.get("radiusMeters", 10000))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Choose a supported search radius"}), 400
+    if not 1000 <= radius_meters <= 50000:
+        return jsonify({"error": "Search radius must be between 1 and 50 km"}), 400
+
+    if data.get("lat") is not None or data.get("lon") is not None:
+        try:
+            lat = float(data["lat"])
+            lon = float(data["lon"])
+        except (KeyError, TypeError, ValueError):
+            return jsonify({"error": "Both latitude and longitude are required"}), 400
+        if not math.isfinite(lat) or not math.isfinite(lon) or not -90 <= lat <= 90 or not -180 <= lon <= 180:
+            return jsonify({"error": "The coordinates are invalid"}), 400
+        location_label = "Your Location"
+    elif city:
+        try:
+            coords = _geocode_city(city)
+        except RuntimeError:
+            return jsonify({"error": "Location lookup is temporarily unavailable. Please try again shortly."}), 502
+        if not coords:
+            return jsonify({"error": "Location not found. Try a city or area name."}), 400
+        lat, lon = coords
+        location_label = city
+    else:
+        return jsonify({"error": "Enter a city or use your current location"}), 400
+
+    try:
+        elements = _fetch_overpass(lat, lon, radius_meters)
+    except RuntimeError:
+        return jsonify({"error": "Map search is temporarily busy. Please try again shortly."}), 502
+
+    results = []
+    for element in elements:
+        tags = element.get("tags") or {}
+        name = tags.get("name")
+        center = element.get("center") or {}
+        result_lat = element.get("lat", center.get("lat"))
+        result_lon = element.get("lon", center.get("lon"))
+        if not name or result_lat is None or result_lon is None:
+            continue
+
+        address_parts = [
+            tags.get("addr:housenumber"),
+            tags.get("addr:street"),
+            tags.get("addr:suburb") or tags.get("addr:neighbourhood"),
+            tags.get("addr:city") or tags.get("addr:town"),
+            tags.get("addr:state"),
+        ]
+        address = ", ".join(part for part in address_parts if part) or "Address not available"
+        office = tags.get("office")
+        osm_type = (
+            "Law Firm" if office == "law_firm"
+            else "Notary" if office == "notary"
+            else "Legal Office" if office in {"legal", "legal_office"}
+            else "Lawyer"
+        )
+        specialization_text = " ".join(
+            str(tags.get(key) or "")
+            for key in ("specialization", "legal:specialization", "description", "name:en")
+        ).lower()
+        specialization = next(
+            (
+                label for keywords, label in (
+                    (("civil",), "Civil Law"),
+                    (("criminal", "defence", "defense"), "Criminal Law"),
+                    (("corporate", "business", "commercial"), "Corporate / Business Law"),
+                    (("family", "matrimonial", "custody"), "Family Law"),
+                    (("property", "real estate", "land"), "Property / Real Estate Law"),
+                    (("cyber", "technology", "internet", "digital"), "Cyber / IT Law"),
+                    (("consumer",), "Consumer Law"),
+                    (("employment", "labour", "labor", "workplace"), "Employment / Labour Law"),
+                    (("tax", "taxation", "gst"), "Tax Law"),
+                    (("immigration", "visa", "citizenship"), "Immigration Law"),
+                    (("intellectual property", "patent", "trademark", "copyright"), "Intellectual Property"),
+                    (("divorce", "alimony", "marital"), "Divorce / Matrimonial"),
+                    (("banking", "finance", "financial"), "Banking & Finance Law"),
+                    (("environmental", "environment", "green"), "Environmental Law"),
+                    (("human rights", "civil liberties"), "Human Rights Law"),
+                )
+                if any(keyword in specialization_text or keyword in str(name).lower() for keyword in keywords)
+            ),
+            None,
+        )
+        results.append({
+            "id": f"{element.get('type', 'osm')}/{element.get('id')}",
+            "name": name,
+            "address": address,
+            "lat": float(result_lat),
+            "lon": float(result_lon),
+            "osmType": osm_type,
+            "phone": tags.get("phone") or tags.get("contact:phone"),
+            "website": tags.get("website") or tags.get("contact:website"),
+            "openingHours": tags.get("opening_hours"),
+            "detectedSpecialization": specialization,
+        })
+
+    return jsonify({
+        "centerLat": lat,
+        "centerLon": lon,
+        "locationLabel": location_label,
+        "results": results,
+    })
+
 
 @app.route("/api/advocates", methods=["GET"])
 @require_auth
 def advocates():
-    # Advocates are fetched live from OpenStreetMap on the frontend.
-    # This endpoint returns an empty list for API compatibility.
+    # Search results come from /api/advocates/search.
     return jsonify([])
 
 # ═══════════════════════════════════════════════════════════════════════════════

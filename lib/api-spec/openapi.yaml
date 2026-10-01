@@ -149,6 +149,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Document"
+        "400":
+          description: Unsupported or invalid document file
+        "413":
+          description: Document is larger than 50 MB
+        "422":
+          description: No selectable human-readable text was found; OCR may be required
 
   /documents/{id}:
     get:
@@ -610,7 +616,7 @@ components:
 
     DocumentInput:
       type: object
-      required: [name, size, type]
+      required: [name, size, type, filename, fileBase64]
       properties:
         name:
           type: string
@@ -618,8 +624,16 @@ components:
           type: integer
         type:
           type: string
+        filename:
+          type: string
+          maxLength: 255
+        fileBase64:
+          type: string
+          description: Original PDF, DOCX, or TXT file bytes encoded as base64 for server-side extraction.
+          maxLength: 69905068
         content:
           type: ["string", "null"]
+          description: Legacy compatibility field. New clients must send fileBase64.
 
     Document:
       type: object
@@ -859,20 +873,28 @@ components:
 
     EmailInput:
       type: object
-      required: [recipientEmail, subject, body]
+      required: [to, sender_name, sender_email, subject, message]
       properties:
-        recipientEmail:
+        to:
+          type: string
+          format: email
+          maxLength: 254
+        sender_name:
+          type: string
+          minLength: 1
+          maxLength: 200
+        sender_email:
           type: string
           format: email
           maxLength: 254
         subject:
           type: string
           maxLength: 500
-        body:
+        message:
           type: string
           minLength: 1
           maxLength: 100000
-        draftId:
+        document_id:
           type: integer
           minimum: 1
         attachment:
@@ -898,17 +920,25 @@ components:
           type: integer
         recipientEmail:
           type: string
+        senderName:
+          type: ["string", "null"]
+        senderEmail:
+          type: ["string", "null"]
         subject:
           type: string
         body:
           type: string
         draftId:
           type: ["integer", "null"]
+        documentId:
+          type: ["integer", "null"]
         sentAt:
           type: string
         status:
           type: string
           enum: [sent, failed, pending]
+        resendMessageId:
+          type: ["string", "null"]
 
     AdminStats:
       type: object

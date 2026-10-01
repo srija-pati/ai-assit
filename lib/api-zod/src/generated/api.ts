@@ -86,11 +86,19 @@ export const ListDocumentsResponse = zod.array(ListDocumentsResponseItem)
 /**
  * @summary Upload a document
  */
+export const uploadDocumentBodyFilenameMax = 255;
+
+export const uploadDocumentBodyFileBase64Max = 69905068;
+
+
+
 export const UploadDocumentBody = zod.object({
   "name": zod.string(),
   "size": zod.number(),
   "type": zod.string(),
-  "content": zod.string().nullish()
+  "filename": zod.string().max(uploadDocumentBodyFilenameMax),
+  "fileBase64": zod.string().max(uploadDocumentBodyFileBase64Max).describe('Original PDF, DOCX, or TXT file bytes encoded as base64 for server-side extraction.'),
+  "content": zod.string().nullish().describe('Legacy compatibility field. New clients must send fileBase64.')
 })
 
 
@@ -353,11 +361,15 @@ export const GetAdvocateResponse = zod.object({
 /**
  * @summary Send legal letter by email
  */
-export const sendEmailBodyRecipientEmailMax = 254;
+export const sendEmailBodyToMax = 254;
+
+export const sendEmailBodySenderNameMax = 200;
+
+export const sendEmailBodySenderEmailMax = 254;
 
 export const sendEmailBodySubjectMax = 500;
 
-export const sendEmailBodyBodyMax = 100000;
+export const sendEmailBodyMessageMax = 100000;
 
 
 export const sendEmailBodyAttachmentFilenameMax = 255;
@@ -369,10 +381,12 @@ export const sendEmailBodyAttachmentContentBase64Max = 6990508;
 
 
 export const SendEmailBody = zod.object({
-  "recipientEmail": zod.string().email().max(sendEmailBodyRecipientEmailMax),
+  "to": zod.string().email().max(sendEmailBodyToMax),
+  "sender_name": zod.string().min(1).max(sendEmailBodySenderNameMax),
+  "sender_email": zod.string().email().max(sendEmailBodySenderEmailMax),
   "subject": zod.string().max(sendEmailBodySubjectMax),
-  "body": zod.string().min(1).max(sendEmailBodyBodyMax),
-  "draftId": zod.number().min(1).optional(),
+  "message": zod.string().min(1).max(sendEmailBodyMessageMax),
+  "document_id": zod.number().min(1).optional(),
   "attachment": zod.object({
   "filename": zod.string().max(sendEmailBodyAttachmentFilenameMax),
   "contentType": zod.string().max(sendEmailBodyAttachmentContentTypeMax),
@@ -383,11 +397,15 @@ export const SendEmailBody = zod.object({
 export const SendEmailResponse = zod.object({
   "id": zod.number(),
   "recipientEmail": zod.string(),
+  "senderName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
   "subject": zod.string(),
   "body": zod.string().optional(),
   "draftId": zod.number().nullish(),
+  "documentId": zod.number().nullish(),
   "sentAt": zod.string(),
-  "status": zod.enum(['sent', 'failed', 'pending'])
+  "status": zod.enum(['sent', 'failed', 'pending']),
+  "resendMessageId": zod.string().nullish()
 })
 
 
@@ -397,11 +415,15 @@ export const SendEmailResponse = zod.object({
 export const ListEmailsResponseItem = zod.object({
   "id": zod.number(),
   "recipientEmail": zod.string(),
+  "senderName": zod.string().nullish(),
+  "senderEmail": zod.string().nullish(),
   "subject": zod.string(),
   "body": zod.string().optional(),
   "draftId": zod.number().nullish(),
+  "documentId": zod.number().nullish(),
   "sentAt": zod.string(),
-  "status": zod.enum(['sent', 'failed', 'pending'])
+  "status": zod.enum(['sent', 'failed', 'pending']),
+  "resendMessageId": zod.string().nullish()
 })
 export const ListEmailsResponse = zod.array(ListEmailsResponseItem)
 

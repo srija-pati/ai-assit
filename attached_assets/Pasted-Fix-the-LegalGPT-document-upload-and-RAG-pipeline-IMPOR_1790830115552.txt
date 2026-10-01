@@ -1,0 +1,71 @@
+Fix the LegalGPT document upload and RAG pipeline.
+
+IMPORTANT:
+Do not modify the UI, authentication, database structure, Gemini model, or existing features unnecessarily.
+
+CURRENT PROBLEM:
+When I upload a PDF containing normal human-readable text, LegalGPT retrieves PDF technical metadata/binary structure instead of the actual visible document text.
+
+For example, when I upload a fictional theft police complaint PDF, the chatbot talks about:
+- PDF version
+- ReportLab
+- C2PA
+- PDF objects
+- fonts
+- metadata
+instead of answering questions about the actual complaint.
+
+REQUIRED FIX:
+
+1. Inspect the current PDF upload and text extraction pipeline.
+2. For PDF files, properly extract the HUMAN-READABLE PAGE TEXT.
+3. Use a reliable PDF text extraction library such as PyMuPDF (fitz) or pypdf.
+4. Never send raw PDF binary data, PDF objects, xref tables, metadata streams, or encoded PDF structures to Gemini.
+5. Clean the extracted text before storing it.
+6. Store only meaningful document text in ChromaDB.
+7. Keep the existing ChromaDB RAG functionality.
+8. When a user asks a question about an uploaded document, retrieve relevant chunks from the actual document text.
+9. Pass the retrieved document content to Gemini as context.
+10. Gemini should answer based primarily on the uploaded document.
+11. If the answer is not present in the uploaded document, explicitly say that the information is not found in the document instead of inventing it.
+12. Preserve page numbers if possible so that retrieved information can be traced back to the correct page.
+13. Support PDF, DOCX, and TXT uploads.
+14. For DOCX, extract the actual paragraph text.
+15. For TXT, use the actual text directly.
+16. Add appropriate error handling when a PDF contains scanned images and no selectable text.
+17. If a scanned PDF has no extractable text, clearly tell the user that OCR is required instead of returning PDF technical metadata.
+18. Do not change the Gemini provider. Continue using:
+    GEMINI_API_KEY
+    ChatGoogleGenerativeAI
+    model="gemini-2.5-flash"
+
+TEST REQUIREMENT:
+
+After making the changes, upload a PDF containing this fictional complaint:
+
+"The complainant is Ananya Rao. She reported the theft of a Dell Inspiron 15 laptop valued at ₹65,000 on 28 September 2026 at approximately 7:30 PM near Madhapur Metro Station. CCTV footage was requested to be examined."
+
+Then test these questions:
+
+1. Who gave the complaint?
+Expected: Ananya Rao.
+
+2. What was stolen?
+Expected: A Dell Inspiron 15 laptop.
+
+3. What was the estimated value?
+Expected: ₹65,000.
+
+4. When did the incident occur?
+Expected: 28 September 2026 at approximately 7:30 PM.
+
+5. Where did the incident occur?
+Expected: Near Madhapur Metro Station.
+
+6. What evidence was mentioned?
+Expected: CCTV footage.
+
+7. Summarize the complaint.
+Expected: A concise summary of the actual complaint, not PDF metadata.
+
+Do not simply change the system prompt to hide the problem. Fix the underlying PDF text extraction and RAG pipeline.

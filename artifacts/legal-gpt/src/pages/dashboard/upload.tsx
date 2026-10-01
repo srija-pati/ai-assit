@@ -16,19 +16,35 @@ import { useToast } from "@/hooks/use-toast";
 import { UploadCloud, FileText, Trash2, MessageSquare, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 
-function extractReadableText(raw: string): string {
-  // Strip binary/non-printable chars, keep readable ASCII + newlines
-  return raw
-    .replace(/[^\x20-\x7E\n\r\t]/g, " ")
-    .replace(/\s{3,}/g, "  ")
-    .trim()
-    .substring(0, 60000);
+const MAX_DOCUMENT_BYTES = 50 * 1024 * 1024;
+
+async function encodeFile(file: File) {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+function getUploadError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const data = (error as { data?: unknown }).data;
+    if (data && typeof data === "object" && "error" in data) {
+      const message = (data as { error?: unknown }).error;
+      if (typeof message === "string") return message;
+    }
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string" && message.length < 500) return message;
+  }
+  return "There was an error uploading your document.";
 }
 
 export default function UploadPage() {
   const [file, setFile] = useState<File | null>(null);
   const [fileName, setFileName] = useState("");
-  const [fileContent, setFileContent] = useState<string>("");
+  const [isPreparing, setIsPreparing] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -39,48 +55,68 @@ export default function UploadPage() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const f = e.target.files[0];
+      const extension = f.name.split(".").pop()?.toLowerCase();
+      if (!["pdf", "docx", "txt"].includes(extension || "")) {
+        e.target.value = "";
+        setFile(null);
+        toast({ title: "Unsupported file", description: "Upload a PDF, DOCX, or TXT file.", variant: "destructive" });
+        return;
+      }
+      if (f.size > MAX_DOCUMENT_BYTES) {
+        e.target.value = "";
+        setFile(null);
+        toast({ title: "File too large", description: "Documents must be 50 MB or smaller.", variant: "destructive" });
+        return;
+      }
       setFile(f);
       if (!fileName) setFileName(f.name);
-      setFileContent("");
-
-      // Read file content as text so AI can actually analyse it
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        const raw = (ev.target?.result as string) || "";
-        setFileContent(extractReadableText(raw));
-      };
-      reader.readAsText(f);
     }
   };
 
-  const handleUpload = (e: React.FormEvent) => {
+  const handleUpload = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
       toast({ title: "No file selected", description: "Please select a file to upload.", variant: "destructive" });
       return;
     }
 
+    if (file.size > MAX_DOCUMENT_BYTES) {
+      toast({ title: "File too large", description: "Documents must be 50 MB or smaller.", variant: "destructive" });
+      return;
+    }
+
+    setIsPreparing(true);
+    let fileBase64: string;
+    try {
+      fileBase64 = await encodeFile(file);
+    } catch {
+      setIsPreparing(false);
+      toast({ title: "Could not read file", description: "Please select the document again.", variant: "destructive" });
+      return;
+    }
+    setIsPreparing(false);
+
     uploadMutation.mutate(
       { 
         data: { 
           name: fileName || file.name, 
           size: file.size, 
-          type: file.type || "application/pdf",
-          content: fileContent || null,
+          type: file.type || "application/octet-stream",
+          filename: file.name,
+          fileBase64,
         } 
       },
       {
         onSuccess: () => {
-          toast({ title: "Document uploaded", description: "Your document has been uploaded and is ready for AI analysis." });
+          toast({ title: "Document uploaded", description: "Readable page text was extracted and indexed for AI analysis." });
           setFile(null);
           setFileName("");
-          setFileContent("");
           queryClient.invalidateQueries({ queryKey: getListDocumentsQueryKey() });
           const fileInput = document.getElementById('document-upload') as HTMLInputElement;
           if (fileInput) fileInput.value = '';
         },
-        onError: () => {
-          toast({ title: "Upload failed", description: "There was an error uploading your document.", variant: "destructive" });
+        onError: (error) => {
+          toast({ title: "Upload failed", description: getUploadError(error), variant: "destructive" });
         }
       }
     );
@@ -138,7 +174,7 @@ export default function UploadPage() {
                   <div className="flex flex-col items-center gap-2 text-muted-foreground">
                     <UploadCloud className="w-8 h-8" />
                     <span className="font-medium text-sm">{file ? file.name : "Drag & drop or click to browse"}</span>
-                    <span className="text-xs opacity-75">PDF, DOCX, TXT up to 50MB</span>
+                    <span className="text-xs opacity-75">PDF, DOCX, TXT up to 50 MB</span>
                   </div>
                 </div>
 
@@ -151,19 +187,22 @@ export default function UploadPage() {
                       onChange={(e) => setFileName(e.target.value)} 
                       placeholder="Enter a descriptive name" 
                     />
-                    {fileContent && (
+                    {file && (
                       <p className="text-xs text-emerald-600">
-                        ✓ Content extracted ({Math.round(fileContent.length / 1000)}KB) — ready for AI analysis
+                        ✓ Ready — readable text is extracted securely on the server
                       </p>
                     )}
                   </div>
                 )}
 
-                <Button type="submit" className="w-full" disabled={!file || uploadMutation.isPending}>
-                  {uploadMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UploadCloud className="w-4 h-4 mr-2" />}
-                  {uploadMutation.isPending ? "Uploading..." : "Upload Document"}
+                <Button type="submit" className="w-full" disabled={!file || uploadMutation.isPending || isPreparing}>
+                  {uploadMutation.isPending || isPreparing ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <UploadCloud className="w-4 h-4 mr-2" />}
+                  {isPreparing ? "Preparing file..." : uploadMutation.isPending ? "Uploading..." : "Upload Document"}
                 </Button>
               </form>
+              <p className="mt-3 text-xs text-muted-foreground">
+                Scanned PDFs without selectable text need OCR before they can be analyzed.
+              </p>
             </CardContent>
           </Card>
         </div>

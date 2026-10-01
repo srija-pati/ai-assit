@@ -55,7 +55,17 @@ export interface DocumentInput {
   name: string;
   size: number;
   type: string;
-  /** @nullable */
+  /** @maxLength 255 */
+  filename: string;
+  /**
+     * Original PDF, DOCX, or TXT file bytes encoded as base64 for server-side extraction.
+     * @maxLength 69905068
+     */
+  fileBase64: string;
+  /**
+     * Legacy compatibility field. New clients must send fileBase64.
+     * @nullable
+     */
   content?: string | null;
 }
 
@@ -251,16 +261,23 @@ export type EmailInputAttachment = {
 
 export interface EmailInput {
   /** @maxLength 254 */
-  recipientEmail: string;
+  to: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  sender_name: string;
+  /** @maxLength 254 */
+  sender_email: string;
   /** @maxLength 500 */
   subject: string;
   /**
      * @minLength 1
      * @maxLength 100000
      */
-  body: string;
+  message: string;
   /** @minimum 1 */
-  draftId?: number;
+  document_id?: number;
   /** Optional PDF, DOCX, or TXT file encoded as base64. */
   attachment?: EmailInputAttachment;
 }
@@ -277,12 +294,20 @@ export const SentEmailStatus = {
 export interface SentEmail {
   id: number;
   recipientEmail: string;
+  /** @nullable */
+  senderName?: string | null;
+  /** @nullable */
+  senderEmail?: string | null;
   subject: string;
   body?: string;
   /** @nullable */
   draftId?: number | null;
+  /** @nullable */
+  documentId?: number | null;
   sentAt: string;
   status: SentEmailStatus;
+  /** @nullable */
+  resendMessageId?: string | null;
 }
 
 export interface AdminLog {

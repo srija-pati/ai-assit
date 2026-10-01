@@ -20,6 +20,11 @@ description: How the Python Flask backend is wired into the LegalGPT monorepo, r
 - chromadb==0.6.3 (newer 1.x versions were 403-blocked by package firewall)
 - reportlab
 
+## PDF extraction runtime
+- Prefer the installed `pdftotext` CLI for selectable PDF text, with `mutool` as the fallback; both are available in the current Replit runtime.
+- **Why:** Python PDF package installs encountered the read-only Nix store, while Poppler and MuPDF tools were already available and preserve page boundaries.
+- **How to apply:** Keep extraction server-side, retain per-page text markers, and return an explicit OCR-required error for scans rather than falling back to raw PDF bytes.
+
 ## LangChain import paths (current versions)
 - Messages: `from langchain_core.messages import HumanMessage, AIMessage, SystemMessage`
 - Text splitter: `from langchain_text_splitters import RecursiveCharacterTextSplitter`

@@ -9,16 +9,23 @@ import type { EmailInputAttachment } from './emailInputAttachment';
 
 export interface EmailInput {
   /** @maxLength 254 */
-  recipientEmail: string;
+  to: string;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  sender_name: string;
+  /** @maxLength 254 */
+  sender_email: string;
   /** @maxLength 500 */
   subject: string;
   /**
      * @minLength 1
      * @maxLength 100000
      */
-  body: string;
+  message: string;
   /** @minimum 1 */
-  draftId?: number;
+  document_id?: number;
   /** Optional PDF, DOCX, or TXT file encoded as base64. */
   attachment?: EmailInputAttachment;
 }

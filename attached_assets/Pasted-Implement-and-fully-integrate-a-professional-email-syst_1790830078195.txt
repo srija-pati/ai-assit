@@ -1,0 +1,750 @@
+Implement and fully integrate a professional email system into the existing AI Legal application.
+
+Do NOT create a separate email application. Modify the existing application while preserving all existing functionality.
+
+## 1. EMAIL PROVIDER
+
+Use **Resend** as the email delivery provider.
+
+Use these backend environment variables:
+
+```env
+RESEND_API_KEY=your_resend_api_key
+RESEND_FROM_EMAIL=website_verified_email@example.com
+RESEND_FROM_NAME=AI Legal
+```
+
+Important:
+
+* `RESEND_API_KEY` must remain server-side only.
+* Never expose the API key in frontend JavaScript, HTML, API responses, logs, or browser storage.
+* `RESEND_FROM_EMAIL` is the ONLY actual email address from which emails are sent.
+* Users must NEVER be allowed to change the actual `From` email address.
+* The website's verified Resend email must always remain the actual sender.
+
+If the required Resend configuration is missing, return a clear configuration error instead of silently failing.
+
+---
+
+# 2. WHO CAN SEND EMAILS
+
+Every authenticated user must be able to send emails.
+
+This includes:
+
+* Normal users
+* Admin users
+
+Do NOT restrict email sending to administrators.
+
+Unauthenticated visitors must NOT be allowed to send emails.
+
+---
+
+# 3. EMAIL FORM
+
+Create a professional "Send Email" interface.
+
+The form must contain:
+
+### Recipient
+
+`To Email`
+
+The user can enter any valid recipient email address.
+
+### Sender information
+
+`Sender Name`
+
+`Sender Email`
+
+These fields describe the person sending/requesting the email.
+
+IMPORTANT:
+
+The Sender Email entered by the user must NOT become the actual Resend `From` address.
+
+The actual From address must always remain:
+
+`RESEND_FROM_EMAIL`
+
+### Subject
+
+`Subject`
+
+### Message
+
+`Message`
+
+### Attachment
+
+Allow the user to select an existing generated legal document/PDF.
+
+### Send button
+
+`Send Email`
+
+---
+
+# 4. HOW THE EMAIL MUST APPEAR
+
+Suppose the user enters:
+
+Sender Name:
+
+`Pati Sravya`
+
+Sender Email:
+
+`sravya@gmail.com`
+
+Recipient:
+
+`client@example.com`
+
+Subject:
+
+`Legal Document`
+
+Message:
+
+`Please find the requested document attached.`
+
+The actual email headers must be:
+
+```text
+From: AI Legal <website_verified_email@example.com>
+To: client@example.com
+Subject: Legal Document
+```
+
+The user's email MUST NOT replace the From address.
+
+The email body should contain:
+
+```text
+AI LEGAL
+
+Sender Details
+
+Name: Pati Sravya
+Email: sravya@gmail.com
+
+Message
+
+Please find the requested document attached.
+
+Attachment
+
+The requested legal document is attached to this email.
+```
+
+Make the email visually professional using a clean HTML email template.
+
+Also provide a plain-text fallback version.
+
+---
+
+# 5. SENDER EMAIL BEHAVIOR
+
+The user's entered Sender Email is informational.
+
+It should appear clearly inside the email body.
+
+Do NOT use it as:
+
+```text
+From
+```
+
+Do NOT automatically use it as:
+
+```text
+Reply-To
+```
+
+unless explicitly configured later.
+
+The website email remains the actual sender.
+
+---
+
+# 6. EMAIL API
+
+Create or update:
+
+```text
+POST /api/send-email
+```
+
+The endpoint should accept:
+
+```json
+{
+  "to": "recipient@example.com",
+  "sender_name": "Pati Sravya",
+  "sender_email": "sravya@gmail.com",
+  "subject": "Legal Document",
+  "message": "Please find the requested document attached.",
+  "document_id": 123
+}
+```
+
+The backend must:
+
+1. Verify the user is authenticated.
+2. Validate the recipient email.
+3. Validate sender name.
+4. Validate sender email.
+5. Validate subject.
+6. Validate message.
+7. Verify Resend configuration.
+8. Generate the HTML email.
+9. Generate the plain-text email.
+10. Attach the selected PDF if applicable.
+11. Send the email using Resend.
+12. Return a clear success response.
+
+---
+
+# 7. RESEND IMPLEMENTATION
+
+Use the official Resend SDK/API from the backend.
+
+The backend should conceptually send:
+
+```text
+From:
+RESEND_FROM_NAME <RESEND_FROM_EMAIL>
+
+To:
+user-provided recipient
+
+Subject:
+user-provided subject
+
+HTML:
+generated email template
+
+Text:
+generated plain-text version
+
+Attachment:
+optional generated PDF
+```
+
+Never allow the frontend to supply or override:
+
+```text
+RESEND_API_KEY
+RESEND_FROM_EMAIL
+```
+
+The backend must take these values from environment variables.
+
+---
+
+# 8. GENERATED LEGAL DOCUMENT INTEGRATION
+
+Integrate email sending with the existing legal document generator.
+
+After a legal document is generated, provide:
+
+```text
+Download PDF
+Send by Email
+```
+
+When the user selects:
+
+`Send by Email`
+
+open the email form.
+
+Automatically select the generated document as the attachment.
+
+The user should only need to enter:
+
+* Recipient Email
+* Sender Name
+* Sender Email
+* Subject
+* Message
+
+Then click:
+
+`Send Email`
+
+---
+
+# 9. PDF ATTACHMENT
+
+If the user chooses a generated document:
+
+1. Locate the generated document.
+2. Generate/use the PDF.
+3. Attach the PDF to the Resend email.
+4. Send the email.
+5. Show a successful confirmation.
+
+Example:
+
+```text
+Document:
+Legal_Notice_001.pdf
+```
+
+The recipient should receive:
+
+```text
+AI Legal email
++
+Legal_Notice_001.pdf
+```
+
+Do not expose internal file paths to the recipient.
+
+---
+
+# 10. EMAIL DASHBOARD
+
+Add an email section to the authenticated user's dashboard:
+
+```text
+Dashboard
+├── Documents
+├── AI Chat
+├── Legal Document Generator
+├── Send Email
+└── Email History
+```
+
+Both normal users and admins should have access to:
+
+```text
+Send Email
+```
+
+---
+
+# 11. EMAIL HISTORY
+
+Create an email history section for authenticated users.
+
+Store:
+
+* Logged-in user
+* Recipient email
+* Sender name
+* Sender email
+* Subject
+* Attachment/document ID if applicable
+* Date/time
+* Status
+* Resend message ID if available
+
+Statuses:
+
+```text
+Sent
+Failed
+```
+
+Never store:
+
+* Resend API key
+* API secrets
+* Passwords
+
+Users should only be able to see their own email history.
+
+Admins may see email history according to the application's existing admin authorization model.
+
+---
+
+# 12. ERROR HANDLING
+
+Handle all of these cases properly:
+
+### Missing Resend API key
+
+Show:
+
+```text
+Email service is not configured. Please contact the administrator.
+```
+
+Return HTTP 503.
+
+### Missing sender email
+
+Show:
+
+```text
+Website email sender is not configured.
+```
+
+### Invalid recipient
+
+Show:
+
+```text
+Please enter a valid recipient email address.
+```
+
+### Invalid sender email
+
+Show:
+
+```text
+Please enter a valid sender email address.
+```
+
+### Missing subject
+
+Show:
+
+```text
+Please enter an email subject.
+```
+
+### Empty message
+
+Show:
+
+```text
+Please enter a message.
+```
+
+### Attachment not found
+
+Show:
+
+```text
+The selected document could not be found.
+```
+
+### Resend API failure
+
+Show:
+
+```text
+Unable to send the email. Please try again.
+```
+
+Do not expose raw API errors, API keys, stack traces, or sensitive server information to the user.
+
+---
+
+# 13. VALIDATION AND SECURITY
+
+Implement:
+
+* Email format validation
+* Input sanitization
+* HTML escaping where necessary
+* Header-injection protection
+* Authentication checks
+* Authorization checks
+* Attachment validation
+* File-size validation
+* Safe PDF handling
+
+Never trust frontend validation alone.
+
+Repeat validation on the backend.
+
+Do not allow users to:
+
+* Change the website's From email
+* Access another user's documents
+* Access another user's email history
+* Access Resend credentials
+* Execute uploaded files
+
+---
+
+# 14. EMAIL UI
+
+Create a clean interface:
+
+```text
+┌─────────────────────────────────────┐
+│            SEND EMAIL               │
+├─────────────────────────────────────┤
+│                                     │
+│ To Email                            │
+│ [_______________________________]   │
+│                                     │
+│ Sender Name                         │
+│ [_______________________________]   │
+│                                     │
+│ Sender Email                        │
+│ [_______________________________]   │
+│                                     │
+│ Subject                             │
+│ [_______________________________]   │
+│                                     │
+│ Message                             │
+│ [_______________________________]   │
+│ [                               ]   │
+│ [_______________________________]   │
+│                                     │
+│ Attachment                          │
+│ [ Select Generated Document ▼ ]     │
+│                                     │
+│        [ SEND EMAIL ]               │
+│                                     │
+└─────────────────────────────────────┘
+```
+
+Add this explanation:
+
+> Emails are sent from the official AI Legal website email. The sender name and email you enter will be displayed inside the email.
+
+---
+
+# 15. SUCCESS MESSAGE
+
+After successful sending:
+
+```text
+Email sent successfully!
+```
+
+Optionally display:
+
+```text
+Recipient: client@example.com
+Attachment: Legal_Notice.pdf
+```
+
+Do not display the Resend API key or other secrets.
+
+---
+
+# 16. LOADING STATE
+
+When sending:
+
+```text
+Sending email...
+```
+
+Disable the Send button temporarily to prevent duplicate submissions.
+
+After completion:
+
+```text
+Email sent successfully!
+```
+
+or:
+
+```text
+Failed to send email. Please try again.
+```
+
+---
+
+# 17. DUPLICATE-SEND PROTECTION
+
+Prevent accidental double-clicks.
+
+While the request is being processed:
+
+```text
+Send Email button → disabled
+```
+
+Re-enable it after the request completes.
+
+---
+
+# 18. ADMIN AND NORMAL USER TEST
+
+Test both:
+
+### Normal User
+
+```text
+Login
+↓
+Dashboard
+↓
+Send Email
+↓
+Enter recipient
+↓
+Enter sender name
+↓
+Enter sender email
+↓
+Enter subject
+↓
+Enter message
+↓
+Attach PDF
+↓
+Send
+```
+
+### Admin
+
+```text
+Login
+↓
+Dashboard
+↓
+Send Email
+↓
+Enter recipient
+↓
+Enter sender details
+↓
+Send
+```
+
+Both must work.
+
+---
+
+# 19. IMPORTANT SENDER RULE
+
+This is the most important requirement.
+
+The email must ALWAYS be sent from:
+
+```text
+RESEND_FROM_EMAIL
+```
+
+Example:
+
+```text
+From: AI Legal <legal@yourwebsite.com>
+```
+
+Even if the user enters:
+
+```text
+Sender Name: Pati Sravya
+Sender Email: sravya@gmail.com
+```
+
+the actual email must still be:
+
+```text
+From: AI Legal <legal@yourwebsite.com>
+```
+
+The body should show:
+
+```text
+Sender Details
+
+Name: Pati Sravya
+Email: sravya@gmail.com
+```
+
+Do NOT change this behavior.
+
+---
+
+# 20. DO NOT BREAK EXISTING FEATURES
+
+Do not remove or modify the existing functionality unnecessarily.
+
+Preserve:
+
+* User registration
+* Login
+* Authentication
+* Admin login
+* Admin dashboard
+* User dashboard
+* AI chat
+* Legal document upload
+* Document analysis
+* Legal document generation
+* PDF generation
+* Location functionality
+* Database
+* Existing UI
+* Existing routes
+* Existing APIs
+
+Only modify the email-related functionality where necessary.
+
+---
+
+# 21. FINAL VERIFICATION
+
+After implementation, verify:
+
+### Configuration
+
+```text
+RESEND_API_KEY → configured
+RESEND_FROM_EMAIL → configured
+RESEND_FROM_NAME → configured
+```
+
+Do not print their values.
+
+### Test 1
+
+Normal user sends email.
+
+Expected:
+
+```text
+SUCCESS
+```
+
+### Test 2
+
+Admin sends email.
+
+Expected:
+
+```text
+SUCCESS
+```
+
+### Test 3
+
+Email contains:
+
+```text
+Sender Name
+Sender Email
+Message
+```
+
+### Test 4
+
+Actual From address is always:
+
+```text
+RESEND_FROM_EMAIL
+```
+
+### Test 5
+
+Generated PDF is attached correctly.
+
+### Test 6
+
+Invalid recipient is rejected.
+
+### Test 7
+
+Missing Resend configuration returns a clear 503 configuration message.
+
+### Test 8
+
+Resend API key never appears in browser/network responses/logs.
+
+Implement the complete feature end-to-end and ensure the frontend, Flask backend, Resend integration, database/email history, and generated-document attachment flow all work together.

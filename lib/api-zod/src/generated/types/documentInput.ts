@@ -10,6 +10,16 @@ export interface DocumentInput {
   name: string;
   size: number;
   type: string;
-  /** @nullable */
+  /** @maxLength 255 */
+  filename: string;
+  /**
+     * Original PDF, DOCX, or TXT file bytes encoded as base64 for server-side extraction.
+     * @maxLength 69905068
+     */
+  fileBase64: string;
+  /**
+     * Legacy compatibility field. New clients must send fileBase64.
+     * @nullable
+     */
   content?: string | null;
 }

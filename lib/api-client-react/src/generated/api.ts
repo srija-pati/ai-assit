@@ -530,7 +530,7 @@ export const uploadDocument = async (documentInput: DocumentInput, options?: Req
 
 
 
-export const getUploadDocumentMutationOptions = <TError = ErrorType<unknown>,
+export const getUploadDocumentMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadDocument>>, TError,{data: BodyType<DocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof uploadDocument>>, TError,{data: BodyType<DocumentInput>}, TContext> => {
 
@@ -559,12 +559,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UploadDocumentMutationResult = NonNullable<Awaited<ReturnType<typeof uploadDocument>>>
     export type UploadDocumentMutationBody = BodyType<DocumentInput>
-    export type UploadDocumentMutationError = ErrorType<unknown>
+    export type UploadDocumentMutationError = ErrorType<void>
 
     /**
  * @summary Upload a document
  */
-export const useUploadDocument = <TError = ErrorType<unknown>,
+export const useUploadDocument = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadDocument>>, TError,{data: BodyType<DocumentInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof uploadDocument>>,

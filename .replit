@@ -34,3 +34,8 @@ externalPort = 8081
 [[ports]]
 localPort = 19852
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+RESEND_FROM_NAME = "AI Legal"

@@ -66,6 +66,8 @@ export default function EmailPage() {
   });
   const initialDraftApplied = useRef(false);
   const [recipient, setRecipient] = useState("");
+  const [senderName, setSenderName] = useState("");
+  const [senderEmail, setSenderEmail] = useState("");
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [draftId, setDraftId] = useState<number | null>(null);
@@ -109,18 +111,28 @@ export default function EmailPage() {
     setSuccessMessage("");
 
     const normalizedRecipient = recipient.trim();
+    const normalizedSenderName = senderName.trim();
+    const normalizedSenderEmail = senderEmail.trim();
     const normalizedSubject = subject.trim();
     const normalizedBody = body.trim();
     if (!EMAIL_PATTERN.test(normalizedRecipient)) {
-      setFormError("Enter a valid recipient email address.");
+      setFormError("Please enter a valid recipient email address.");
+      return;
+    }
+    if (!normalizedSenderName || normalizedSenderName.length > 200) {
+      setFormError("Please enter a valid sender name.");
+      return;
+    }
+    if (!EMAIL_PATTERN.test(normalizedSenderEmail)) {
+      setFormError("Please enter a valid sender email address.");
       return;
     }
     if (!normalizedSubject) {
-      setFormError("Enter an email subject.");
+      setFormError("Please enter an email subject.");
       return;
     }
     if (!normalizedBody) {
-      setFormError("Enter a message before sending.");
+      setFormError("Please enter a message.");
       return;
     }
     if (attachmentFile && attachmentFile.size > MAX_ATTACHMENT_BYTES) {
@@ -139,22 +151,26 @@ export default function EmailPage() {
     sendEmailMutation.mutate(
       {
         data: {
-          recipientEmail: normalizedRecipient,
+          to: normalizedRecipient,
+          sender_name: normalizedSenderName,
+          sender_email: normalizedSenderEmail,
           subject: normalizedSubject,
-          body: normalizedBody,
-          ...(draftId !== null ? { draftId } : {}),
+          message: normalizedBody,
+          ...(draftId !== null ? { document_id: draftId } : {}),
           ...(encodedAttachment ? { attachment: encodedAttachment } : {}),
         },
       },
       {
         onSuccess: (data) => {
-          const message = `Email sent to ${data.recipientEmail}.`;
-          setSuccessMessage(message);
+          const successText = `Email sent successfully! Recipient: ${data.recipientEmail}.`;
+          setSuccessMessage(successText);
           toast({
-            title: "Email sent",
-            description: message,
+            title: "Email sent successfully!",
+            description: `Recipient: ${data.recipientEmail}`,
           });
           setRecipient("");
+          setSenderName("");
+          setSenderEmail("");
           setSubject("");
           setBody("");
           setDraftId(null);
@@ -271,6 +287,33 @@ export default function EmailPage() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="sender-name">Sender Name</Label>
+                <Input
+                  id="sender-name"
+                  value={senderName}
+                  onChange={(e) => { setSenderName(e.target.value); setFormError(""); }}
+                  placeholder="Your name"
+                  autoComplete="name"
+                  required
+                  maxLength={200}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="sender-email">Sender Email</Label>
+                <Input
+                  id="sender-email"
+                  type="email"
+                  value={senderEmail}
+                  onChange={(e) => { setSenderEmail(e.target.value); setFormError(""); }}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                  required
+                  maxLength={254}
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="email-attachment">Attachment (Optional)</Label>
                 <Input
                   id="email-attachment"
@@ -315,13 +358,13 @@ export default function EmailPage() {
               </div>
 
               <p className="text-xs text-muted-foreground bg-muted/40 rounded p-3">
-                Generated documents are converted to PDF on the server. The API key and sender address are never exposed to the browser.
+                Emails are sent from the official AI Legal website email. The sender name and email you enter will be displayed inside the email. Generated documents are converted to PDF on the server.
               </p>
             </CardContent>
             <CardFooter className="border-t bg-muted/10 py-4 flex justify-end">
               <Button type="submit" disabled={sendEmailMutation.isPending}>
                 {sendEmailMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Send className="w-4 h-4 mr-2" />}
-                {sendEmailMutation.isPending ? "Sending..." : "Send Email"}
+                {sendEmailMutation.isPending ? "Sending email..." : "Send Email"}
               </Button>
             </CardFooter>
           </form>
@@ -330,7 +373,7 @@ export default function EmailPage() {
         <Card>
           <CardHeader>
             <CardTitle>Sent Communications</CardTitle>
-            <CardDescription>History of letters and emails sent through LegalGPT.</CardDescription>
+              <CardDescription>Your private email history, including sender details and delivery status.</CardDescription>
           </CardHeader>
           <CardContent>
             {emailsLoading ? (
@@ -353,6 +396,9 @@ export default function EmailPage() {
                     </div>
                     <div className="text-sm text-muted-foreground space-y-1">
                       <p><span className="font-medium text-foreground">To:</span> {email.recipientEmail}</p>
+                        {email.senderName && (
+                          <p><span className="font-medium text-foreground">Sender:</span> {email.senderName} &lt;{email.senderEmail}&gt;</p>
+                        )}
                       <p><span className="font-medium text-foreground">Sent:</span> {new Date(email.sentAt).toLocaleString()}</p>
                     </div>
                   </div>

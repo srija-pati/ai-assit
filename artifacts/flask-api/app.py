@@ -3,17 +3,23 @@ import hashlib
 import base64
 import secrets
 import datetime
+import html
 import json
 import math
 import re
+import shutil
+import subprocess
 import threading
+import tempfile
 import time
+import unicodedata
 import zipfile
 from socket import timeout as SocketTimeout
-from email.utils import parseaddr
+from email.utils import formataddr
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
+from xml.etree import ElementTree
 from werkzeug.utils import secure_filename
 
 from flask import Flask, request, jsonify, g
@@ -35,6 +41,9 @@ import chromadb
 # ── App setup ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": "*"}})
+MAX_DOCUMENT_UPLOAD_BYTES = 50 * 1024 * 1024
+MAX_DOCUMENT_REQUEST_BYTES = 75 * 1024 * 1024
+MAX_EXTRACTED_TEXT_BYTES = 10 * 1024 * 1024
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH  = os.path.join(BASE_DIR, "legalgpt.db")
@@ -117,9 +126,12 @@ class SentEmail(db.Model):
     __tablename__ = "sent_emails"
     id              = db.Column(db.Integer, primary_key=True)
     recipient_email = db.Column(db.String(200), nullable=False)
+    sender_name     = db.Column(db.String(200))
+    sender_email    = db.Column(db.String(254))
     subject         = db.Column(db.String(500), nullable=False)
     body            = db.Column(db.Text, nullable=False)
     draft_id        = db.Column(db.Integer, db.ForeignKey("generated_drafts.id"))
+    resend_message_id = db.Column(db.String(200))
     status          = db.Column(db.String(50), default="sent")
     sent_at         = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -186,27 +198,174 @@ def log_action(action: str, user_id: int, details: str = ""):
 # ChromaDB / RAG helpers
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def index_document(doc_id: int, content: str):
-    """Split content into chunks and store in ChromaDB."""
-    if not content or len(content.strip()) < 50:
-        return
-    try:
-        chunks = text_splitter.split_text(content)
-        ids       = [f"doc_{doc_id}_chunk_{i}" for i in range(len(chunks))]
-        metadatas = [{"doc_id": str(doc_id), "chunk": i} for i in range(len(chunks))]
-        # Remove existing chunks for this doc
-        try:
-            existing = chroma_collection.get(where={"doc_id": str(doc_id)})
-            if existing["ids"]:
-                chroma_collection.delete(ids=existing["ids"])
-        except Exception:
-            pass
-        chroma_collection.add(documents=chunks, ids=ids, metadatas=metadatas)
-    except Exception as e:
-        app.logger.warning(f"ChromaDB index error: {e}")
+def clean_extracted_text(value: str) -> str:
+    """Normalize readable document text without dropping non-ASCII legal text."""
+    value = unicodedata.normalize("NFKC", value or "")
+    value = value.replace("\r\n", "\n").replace("\r", "\n")
+    value = re.sub(r"[\x00-\x08\x0b\x0e-\x1f\x7f]", " ", value)
+    lines = [" ".join(line.split()) for line in value.split("\n")]
+    return "\n".join(line for line in lines if line).strip()
 
-def retrieve_context(doc_id: int, query: str, n_results: int = 4) -> str:
-    """Retrieve the most relevant chunks from ChromaDB for a query."""
+
+def looks_like_pdf_structure(value: str) -> bool:
+    """Identify legacy uploads where PDF object data was stored as text."""
+    sample = (value or "")[:12000].lower()
+    if sample.lstrip().startswith("%pdf-"):
+        return True
+    technical_markers = (
+        "/type /page", "/type /font", "endobj", "stream", "xref",
+        "/mediabox", "/contents ", "/length ",
+    )
+    return sum(marker in sample for marker in technical_markers) >= 3
+
+
+def _extract_pdf_pages(file_bytes: bytes) -> list[str]:
+    """Extract page text with Poppler, falling back to the installed MuPDF CLI."""
+    with tempfile.TemporaryDirectory(prefix="legalgpt-pdf-") as temp_directory:
+        pdf_path = os.path.join(temp_directory, "document.pdf")
+        text_path = os.path.join(temp_directory, "extracted.txt")
+        with open(pdf_path, "wb") as temp_file:
+            temp_file.write(file_bytes)
+        if shutil.which("pdftotext"):
+            command = ["pdftotext", "-enc", "UTF-8", "-layout", pdf_path, text_path]
+        elif shutil.which("mutool"):
+            command = ["mutool", "draw", "-F", "txt", "-o", text_path, pdf_path]
+        else:
+            raise RuntimeError("PDF text extraction is unavailable on this server.")
+        try:
+            result = subprocess.run(
+                command, capture_output=True, timeout=60, check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ValueError("This PDF took too long to process. Try a smaller file.") from exc
+        if result.returncode != 0:
+            raise ValueError("This PDF could not be read. Check that it is a valid PDF and try again.")
+        try:
+            output_size = os.path.getsize(text_path)
+            if output_size > MAX_EXTRACTED_TEXT_BYTES:
+                raise ValueError("The extracted document text is too large to process.")
+            with open(text_path, "r", encoding="utf-8", errors="replace") as extracted_file:
+                extracted_text = extracted_file.read()
+        except OSError as exc:
+            raise ValueError("This PDF could not be read. Check that it is a valid PDF and try again.") from exc
+
+    pages = [clean_extracted_text(page) for page in extracted_text.split("\f")]
+    pages = [page for page in pages if page]
+    if not pages:
+        raise ValueError(
+            "This PDF has no selectable text. OCR is required for scanned PDFs before upload."
+        )
+    if sum(len(page) for page in pages) < 20:
+        raise ValueError(
+            "This PDF has too little selectable text to analyze. OCR is required if it is scanned."
+        )
+    return pages
+
+
+def _extract_docx_text(file_bytes: bytes) -> str:
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            entries = archive.infolist()
+            names = {entry.filename for entry in entries}
+            if (
+                len(entries) > 2000
+                or sum(entry.file_size for entry in entries) > 100 * 1024 * 1024
+                or "[Content_Types].xml" not in names
+                or "word/document.xml" not in names
+                or any(name.lower().endswith("vbaproject.bin") for name in names)
+            ):
+                raise ValueError("This is not a supported DOCX document.")
+            document_xml = archive.read("word/document.xml")
+    except (zipfile.BadZipFile, KeyError, OSError) as exc:
+        raise ValueError("This is not a valid DOCX document.") from exc
+
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:
+        raise ValueError("This DOCX document could not be read.") from exc
+
+    namespace = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    paragraphs = []
+    for paragraph in root.iter(f"{namespace}p"):
+        parts = []
+        for node in paragraph.iter():
+            if node.tag == f"{namespace}t":
+                parts.append(node.text or "")
+            elif node.tag == f"{namespace}tab":
+                parts.append("\t")
+            elif node.tag in (f"{namespace}br", f"{namespace}cr"):
+                parts.append("\n")
+        text = clean_extracted_text("".join(parts))
+        if text:
+            paragraphs.append(text)
+    return "\n\n".join(paragraphs)
+
+
+def extract_document_text(filename: str, file_bytes: bytes) -> str:
+    """Extract readable content from an uploaded PDF, DOCX, or UTF-8 TXT file."""
+    extension = os.path.splitext(filename.lower())[1]
+    if extension == ".pdf":
+        pages = _extract_pdf_pages(file_bytes)
+        return "\n\n".join(f"[Page {index}]\n{page}" for index, page in enumerate(pages, 1))
+    if extension == ".docx":
+        content = _extract_docx_text(file_bytes)
+    elif extension == ".txt":
+        try:
+            content = file_bytes.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ValueError("Text documents must use UTF-8 encoding.") from exc
+        if "\x00" in content:
+            raise ValueError("This is not a valid text document.")
+    else:
+        raise ValueError("Only PDF, DOCX, or TXT documents are supported.")
+
+    content = clean_extracted_text(content)
+    if len(content) < 10:
+        raise ValueError("No readable text was found in this document.")
+    return content
+
+
+def remove_document_index(doc_id: int):
+    try:
+        existing = chroma_collection.get(where={"doc_id": str(doc_id)})
+        if existing.get("ids"):
+            chroma_collection.delete(ids=existing["ids"])
+    except Exception as exc:
+        app.logger.warning("Could not remove stale document index %s: %s", doc_id, type(exc).__name__)
+
+
+def index_document(doc_id: int, content: str):
+    """Index clean extracted text and retain page numbers in chunk metadata."""
+    remove_document_index(doc_id)
+    if not content or len(content.strip()) < 10 or looks_like_pdf_structure(content):
+        return
+
+    page_sections = re.findall(
+        r"(?ms)^\[Page (\d+)\]\s*\n(.*?)(?=^\[Page \d+\]\s*\n|\Z)",
+        content,
+    )
+    indexed_chunks = []
+    metadatas = []
+    try:
+        sections = [(int(page), text) for page, text in page_sections] if page_sections else [(None, content)]
+        for page_number, text in sections:
+            for chunk in text_splitter.split_text(text.strip()):
+                if len(chunk.strip()) < 10:
+                    continue
+                indexed_chunks.append(chunk)
+                metadata = {"doc_id": str(doc_id), "chunk": len(indexed_chunks) - 1}
+                if page_number is not None:
+                    metadata["page"] = page_number
+                metadatas.append(metadata)
+        if indexed_chunks:
+            ids = [f"doc_{doc_id}_chunk_{index}" for index in range(len(indexed_chunks))]
+            chroma_collection.add(documents=indexed_chunks, ids=ids, metadatas=metadatas)
+    except Exception as exc:
+        app.logger.warning("ChromaDB index error: %s", type(exc).__name__)
+
+
+def retrieve_context(doc_id: int, query: str, n_results: int = 6) -> str:
+    """Retrieve relevant extracted chunks and include page citations when available."""
     try:
         results = chroma_collection.query(
             query_texts=[query],
@@ -214,8 +373,18 @@ def retrieve_context(doc_id: int, query: str, n_results: int = 4) -> str:
             where={"doc_id": str(doc_id)},
         )
         docs = results.get("documents", [[]])[0]
-        return "\n\n".join(docs) if docs else ""
-    except Exception:
+        metadatas = results.get("metadatas", [[]])[0]
+        if not docs:
+            return ""
+        context = []
+        for index, text in enumerate(docs):
+            metadata = metadatas[index] if index < len(metadatas) else {}
+            page_number = metadata.get("page") if metadata else None
+            prefix = f"[Page {page_number}]\n" if page_number is not None else ""
+            context.append(prefix + text)
+        return "\n\n".join(context)
+    except Exception as exc:
+        app.logger.warning("ChromaDB retrieval error: %s", type(exc).__name__)
         return ""
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -232,7 +401,9 @@ When a user uploads a document, you analyse it carefully and answer questions ba
 - Draft and review legal documents
 - Always include a brief disclaimer that your responses are AI-assisted information, not professional legal advice
 
-Be conversational, thorough, and helpful like ChatGPT — answer any question the user asks, using the document context provided."""
+When document context is provided, ground answers about that document only in the supplied extracted text. If the requested fact is not present in the context, say: "That information is not found in the document." Do not invent names, dates, values, events, or evidence. Cite a page number when one is included in the context. You may provide general legal information only when the user explicitly asks for it, and clearly distinguish it from document facts.
+
+Be conversational, thorough, and helpful like ChatGPT."""
 
 def ask_llm(message: str, doc_context: str, doc_name: str, history: list) -> str:
     if not llm:
@@ -250,7 +421,7 @@ Here are the most relevant sections from the document based on the user's questi
 {doc_context}
 ---
 
-Use this content to answer the user's question accurately. Quote relevant parts where appropriate."""
+Use only this extracted page text for claims about the document. If the answer is absent, say that the information is not found in the document. Do not infer or invent details. Quote relevant passages and cite the supplied page number where appropriate."""
         messages.append(SystemMessage(content=ctx_msg))
 
     # Add conversation history (last 6 turns)
@@ -553,28 +724,42 @@ def validate_email_attachment(attachment: dict) -> dict:
     }
 
 
-def send_email_resend(to: str, subject: str, body: str, attachments: list[dict]) -> str | None:
+def send_email_resend(
+    to: str,
+    subject: str,
+    body: str,
+    attachments: list[dict],
+    html_body: str | None = None,
+) -> str | None:
     api_key = os.environ.get("RESEND_API_KEY", "").strip()
-    configured_sender = os.environ.get("RESEND_FROM_EMAIL", "").strip()
-    sender_address = parseaddr(configured_sender)[1]
+    sender_email = os.environ.get("RESEND_FROM_EMAIL", "").strip()
+    sender_name = os.environ.get("RESEND_FROM_NAME", "").strip()
     if not api_key:
-        raise EmailConfigurationError("Email sending is not configured yet.")
+        raise EmailConfigurationError("Email service is not configured. Please contact the administrator.")
     if (
-        not configured_sender
-        or "\r" in configured_sender
-        or "\n" in configured_sender
-        or "," in configured_sender
-        or ";" in configured_sender
-        or not is_valid_email(sender_address)
+        not sender_email
+        or not is_valid_email(sender_email)
+        or "\r" in sender_email
+        or "\n" in sender_email
     ):
-        raise EmailConfigurationError("The configured email sender address is invalid.")
+        raise EmailConfigurationError("Website email sender is not configured.")
+    if (
+        not sender_name
+        or len(sender_name) > 100
+        or "\r" in sender_name
+        or "\n" in sender_name
+        or any(ord(character) < 32 for character in sender_name)
+    ):
+        raise EmailConfigurationError("Website email sender name is not configured.")
 
     payload = {
-        "from": configured_sender,
+        "from": formataddr((sender_name, sender_email)),
         "to": [to],
         "subject": subject,
         "text": body,
     }
+    if html_body:
+        payload["html"] = html_body
     if attachments:
         payload["attachments"] = attachments
 
@@ -668,13 +853,84 @@ def list_documents():
 @app.route("/api/documents", methods=["POST"])
 @require_auth
 def upload_document():
-    data = request.get_json() or {}
+    if request.content_length and request.content_length > MAX_DOCUMENT_REQUEST_BYTES:
+        return jsonify({"error": "Documents must be 50 MB or smaller."}), 413
+
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"error": "Choose a PDF, DOCX, or TXT document to upload."}), 400
+
     name, size, ftype = data.get("name"), data.get("size"), data.get("type")
-    content = data.get("content")
-    if not name or not size or not ftype:
+    if not isinstance(name, str) or not name.strip() or not isinstance(size, int) or isinstance(size, bool) or size < 0:
+        return jsonify({"error": "A document name and valid file size are required."}), 400
+    if not isinstance(ftype, str) or not ftype.strip():
         return jsonify({"error": "Name, size and type are required"}), 400
 
-    doc = Document(name=name, size=size, type=ftype, content=content,
+    source_filename = data.get("filename")
+    source_filename = source_filename.strip() if isinstance(source_filename, str) else ""
+    if not source_filename:
+        source_filename = name.strip()
+    extension = os.path.splitext(source_filename.lower())[1]
+    mime_extensions = {
+        "application/pdf": ".pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+        "application/zip": ".docx",
+        "text/plain": ".txt",
+    }
+    if extension not in {".pdf", ".docx", ".txt"}:
+        extension = mime_extensions.get(ftype.split(";", 1)[0].strip().lower(), "")
+        if extension:
+            source_filename = source_filename + extension
+    allowed_types = {
+        ".pdf": {"application/pdf", "application/octet-stream"},
+        ".docx": {
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/zip",
+            "application/octet-stream",
+        },
+        ".txt": {"text/plain", "application/octet-stream"},
+    }
+    actual_type = ftype.split(";", 1)[0].strip().lower()
+    if extension not in allowed_types or actual_type not in allowed_types[extension]:
+        return jsonify({"error": "Only matching PDF, DOCX, or TXT files are supported."}), 400
+
+    encoded_file = data.get("fileBase64")
+    if isinstance(encoded_file, str):
+        if len(encoded_file) > 70_000_000:
+            return jsonify({"error": "Documents must be 50 MB or smaller."}), 413
+        try:
+            file_bytes = base64.b64decode(encoded_file, validate=True)
+        except (ValueError, TypeError):
+            return jsonify({"error": "The document could not be read. Please choose it again."}), 400
+        if len(file_bytes) > MAX_DOCUMENT_UPLOAD_BYTES:
+            return jsonify({"error": "Documents must be 50 MB or smaller."}), 413
+        if len(file_bytes) != size:
+            return jsonify({"error": "The uploaded document size did not match the selected file."}), 400
+        if not file_bytes:
+            return jsonify({"error": "The selected document is empty."}), 400
+        if extension == ".pdf" and not file_bytes.startswith(b"%PDF-"):
+            return jsonify({"error": "This file is not a valid PDF."}), 400
+        try:
+            content = extract_document_text(source_filename, file_bytes)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 422
+        except RuntimeError:
+            app.logger.exception("PDF text extraction is not available")
+            return jsonify({"error": "PDF text extraction is unavailable. Please contact the administrator."}), 500
+    else:
+        # Compatibility for older clients that already submit extracted text.
+        legacy_content = data.get("content")
+        if not isinstance(legacy_content, str) or not legacy_content.strip():
+            return jsonify({"error": "The document contains no readable text. Please upload the original file."}), 400
+        content = clean_extracted_text(legacy_content)
+        if extension == ".pdf" and looks_like_pdf_structure(content):
+            return jsonify({
+                "error": "This PDF was sent as raw file data instead of readable page text. Please re-upload the original PDF."
+            }), 422
+        if len(content) < 10:
+            return jsonify({"error": "No readable text was found in this document."}), 422
+
+    doc = Document(name=name.strip()[:500], size=size, type=actual_type, content=content,
                    status="processed", user_id=g.user.id)
     db.session.add(doc)
     db.session.commit()
@@ -730,6 +986,16 @@ def chat():
 
     if not message:
         return jsonify({"error": "Message is required"}), 400
+    if document_id is not None and (
+        isinstance(document_id, bool) or not isinstance(document_id, int) or document_id < 1
+    ):
+        return jsonify({"error": "Choose a valid document."}), 400
+
+    doc = None
+    if document_id is not None:
+        doc = Document.query.filter_by(id=document_id, user_id=g.user.id).first()
+        if not doc:
+            return jsonify({"error": "The selected document could not be found in your account."}), 404
 
     # Save user message
     user_msg = ChatHistory(role="user", content=message, document_id=document_id,
@@ -746,18 +1012,25 @@ def chat():
     # RAG: retrieve relevant context from ChromaDB
     doc_name    = "the document"
     doc_context = ""
-    if document_id:
-        doc = Document.query.filter_by(id=document_id, user_id=g.user.id).first()
-        if doc:
-            doc_name = doc.name
-            # Try ChromaDB first (chunked semantic search)
+    legacy_pdf_needs_reupload = False
+    if doc:
+        doc_name = doc.name
+        legacy_pdf_needs_reupload = (
+            doc.type == "application/pdf" and looks_like_pdf_structure(doc.content or "")
+        )
+        if not legacy_pdf_needs_reupload:
             doc_context = retrieve_context(document_id, message)
-            # Fallback: use raw content if ChromaDB has no chunks
             if not doc_context and doc.content:
-                doc_context = doc.content[:4000]
+                doc_context = doc.content[:12000]
 
     # Call LangChain + Gemini
-    ai_content = ask_llm(message, doc_context, doc_name, history)
+    if legacy_pdf_needs_reupload:
+        ai_content = (
+            "This older PDF was stored before readable page text was extracted, so I can't safely analyze it. "
+            "Please delete it and re-upload the original PDF."
+        )
+    else:
+        ai_content = ask_llm(message, doc_context, doc_name, history)
 
     sources = json.dumps([{"document": doc_name, "rag": bool(doc_context)}]) if document_id else None
 
@@ -889,6 +1162,49 @@ def log_email_attempt(user_id: int, status: str, recipient: str, subject: str, d
     )
 
 
+def build_email_bodies(sender_name: str, sender_email: str, message: str, has_attachment: bool):
+    plain_parts = [
+        "AI LEGAL",
+        "",
+        "Sender Details",
+        "",
+        f"Name: {sender_name}",
+        f"Email: {sender_email}",
+        "",
+        "Message",
+        "",
+        message,
+    ]
+    if has_attachment:
+        plain_parts.extend(["", "Attachment", "", "The requested legal document is attached to this email."])
+    text_body = "\n".join(plain_parts)
+
+    safe_name = html.escape(sender_name, quote=True)
+    safe_email = html.escape(sender_email, quote=True)
+    safe_message = html.escape(message, quote=True).replace("\n", "<br>\n")
+    attachment_html = (
+        '<section style="margin-top:24px;padding:16px;background:#f5f7fa;border-radius:8px">'
+        '<strong>Attachment</strong><p style="margin:8px 0 0">The requested legal document is attached to this email.</p></section>'
+        if has_attachment else ""
+    )
+    html_body = (
+        '<!doctype html><html><body style="margin:0;background:#f4f6f8;font-family:Arial,sans-serif;color:#172033">'
+        '<main style="max-width:640px;margin:32px auto;background:#fff;border:1px solid #e4e8ef;border-radius:12px;overflow:hidden">'
+        '<header style="padding:24px 32px;background:#101828;color:#fff;font-size:20px;font-weight:700;letter-spacing:.08em">AI LEGAL</header>'
+        '<div style="padding:28px 32px">'
+        '<h2 style="margin:0 0 16px;font-size:18px">Sender Details</h2>'
+        f'<p style="margin:6px 0"><strong>Name:</strong> {safe_name}</p>'
+        f'<p style="margin:6px 0"><strong>Email:</strong> {safe_email}</p>'
+        '<hr style="border:0;border-top:1px solid #e4e8ef;margin:24px 0">'
+        '<h2 style="margin:0 0 12px;font-size:18px">Message</h2>'
+        f'<div style="line-height:1.65;white-space:normal">{safe_message}</div>'
+        f'{attachment_html}'
+        '</div><footer style="padding:16px 32px;background:#f8fafc;color:#667085;font-size:12px">'
+        'Sent securely from the AI Legal website.</footer></main></body></html>'
+    )
+    return text_body, html_body
+
+
 @app.route("/api/send-email", methods=["POST"])
 @require_auth
 def send_email():
@@ -899,32 +1215,50 @@ def send_email():
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         log_email_attempt(g.user.id, "failed", "", "", "Invalid JSON request")
-        return jsonify({"error": "Enter a recipient, subject, and message before sending."}), 400
+        return jsonify({"error": "Please enter a recipient, sender details, subject, and message."}), 400
 
-    recipient_value = data.get("recipientEmail")
-    subject_value = data.get("subject")
-    body_value = data.get("body")
+    def input_value(primary, *legacy):
+        for key in (primary, *legacy):
+            if key in data and data[key] is not None:
+                return data[key]
+        return ""
+
+    recipient_value = input_value("to", "recipientEmail")
+    sender_name_value = input_value("sender_name", "senderName")
+    sender_email_value = input_value("sender_email", "senderEmail")
+    subject_value = input_value("subject")
+    body_value = input_value("message", "body")
     recipient = recipient_value.strip() if isinstance(recipient_value, str) else ""
+    sender_name = sender_name_value.strip() if isinstance(sender_name_value, str) else ""
+    sender_email = sender_email_value.strip() if isinstance(sender_email_value, str) else ""
     subject = subject_value.strip() if isinstance(subject_value, str) else ""
     body = body_value.strip() if isinstance(body_value, str) else ""
 
     if not is_valid_email(recipient):
         log_email_attempt(g.user.id, "failed", recipient, subject, "Invalid recipient address")
-        return jsonify({"error": "Enter a valid recipient email address."}), 400
+        return jsonify({"error": "Please enter a valid recipient email address."}), 400
+    if not sender_name or len(sender_name) > 200 or any(ord(character) < 32 for character in sender_name):
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Invalid sender name")
+        return jsonify({"error": "Please enter a valid sender name."}), 400
+    if not is_valid_email(sender_email):
+        log_email_attempt(g.user.id, "failed", recipient, subject, "Invalid sender email address")
+        return jsonify({"error": "Please enter a valid sender email address."}), 400
     if not subject:
         log_email_attempt(g.user.id, "failed", recipient, subject, "Missing subject")
-        return jsonify({"error": "Enter an email subject."}), 400
+        return jsonify({"error": "Please enter an email subject."}), 400
     if len(subject) > 500 or "\r" in subject or "\n" in subject:
         log_email_attempt(g.user.id, "failed", recipient, subject, "Invalid subject")
         return jsonify({"error": "The subject must be 500 characters or fewer and cannot contain line breaks."}), 400
     if not body:
         log_email_attempt(g.user.id, "failed", recipient, subject, "Missing message")
-        return jsonify({"error": "Enter a message before sending."}), 400
+        return jsonify({"error": "Please enter a message."}), 400
     if len(body) > 100000:
         log_email_attempt(g.user.id, "failed", recipient, subject, "Message exceeds the size limit")
         return jsonify({"error": "The message is too long. Keep it under 100,000 characters."}), 400
 
-    draft_id = data.get("draftId")
+    draft_id = input_value("document_id", "documentId", "draftId") or None
+    if isinstance(draft_id, str) and draft_id.isdigit():
+        draft_id = int(draft_id)
     if draft_id is not None and (
         isinstance(draft_id, bool) or not isinstance(draft_id, int) or draft_id < 1
     ):
@@ -947,7 +1281,7 @@ def send_email():
         draft = GeneratedDraft.query.filter_by(id=draft_id, user_id=g.user.id).first()
         if not draft:
             log_email_attempt(g.user.id, "failed", recipient, subject, "Generated document not found")
-            return jsonify({"error": "That generated document could not be found in your account."}), 404
+            return jsonify({"error": "The selected document could not be found."}), 404
         try:
             pdf_bytes = build_pdf(draft.title, draft.content)
         except Exception:
@@ -963,8 +1297,11 @@ def send_email():
             "content": base64.b64encode(pdf_bytes).decode("ascii"),
         })
 
+    text_body, html_body = build_email_bodies(sender_name, sender_email, body, bool(attachments))
     email = SentEmail(
         recipient_email=recipient,
+        sender_name=sender_name,
+        sender_email=sender_email,
         subject=subject,
         body=body,
         draft_id=draft_id,
@@ -981,7 +1318,7 @@ def send_email():
         return jsonify({"error": "The email could not be recorded. Please try again."}), 500
 
     try:
-        send_email_resend(recipient, subject, body, attachments)
+        email.resend_message_id = send_email_resend(recipient, subject, text_body, attachments, html_body)
     except EmailConfigurationError as exc:
         email.status = "failed"
         db.session.commit()
@@ -992,10 +1329,8 @@ def send_email():
         db.session.commit()
         log_email_attempt(g.user.id, "failed", recipient, subject, str(exc))
         if exc.status_code == 504:
-            return jsonify({"error": "The email provider timed out. Please try again shortly."}), 504
-        return jsonify({
-            "error": "The email provider could not send this message. Check the verified sender setup and try again."
-        }), 502
+            return jsonify({"error": "Unable to send the email. Please try again."}), 504
+        return jsonify({"error": "Unable to send the email. Please try again."}), 502
 
     email.status = "sent"
     email.sent_at = datetime.datetime.utcnow()
@@ -1005,11 +1340,15 @@ def send_email():
     return jsonify({
         "id": email.id,
         "recipientEmail": email.recipient_email,
+        "senderName": email.sender_name,
+        "senderEmail": email.sender_email,
         "subject": email.subject,
         "body": email.body,
         "draftId": email.draft_id,
+        "documentId": email.draft_id,
         "sentAt": email.sent_at.isoformat(),
         "status": email.status,
+        "resendMessageId": email.resend_message_id,
     })
 
 @app.route("/api/emails", methods=["GET"])
@@ -1017,9 +1356,17 @@ def send_email():
 def list_emails():
     emails = SentEmail.query.filter_by(user_id=g.user.id).all()
     return jsonify([{
-        "id": e.id, "recipientEmail": e.recipient_email, "subject": e.subject,
-        "body": e.body, "draftId": e.draft_id, "sentAt": e.sent_at.isoformat(),
+        "id": e.id,
+        "recipientEmail": e.recipient_email,
+        "senderName": e.sender_name,
+        "senderEmail": e.sender_email,
+        "subject": e.subject,
+        "body": e.body,
+        "draftId": e.draft_id,
+        "documentId": e.draft_id,
+        "sentAt": e.sent_at.isoformat(),
         "status": e.status,
+        "resendMessageId": e.resend_message_id,
     } for e in emails])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1361,8 +1708,28 @@ def seed_admin():
         db.session.commit()
         app.logger.info("Admin user seeded: admin@legalgpt.com / admin123")
 
+
+def ensure_email_history_columns():
+    """Add email audit fields to existing SQLite databases without dropping data."""
+    additions = {
+        "sender_name": "VARCHAR(200)",
+        "sender_email": "VARCHAR(254)",
+        "resend_message_id": "VARCHAR(200)",
+    }
+    with db.engine.begin() as connection:
+        columns = {
+            row[1] for row in connection.exec_driver_sql("PRAGMA table_info(sent_emails)").fetchall()
+        }
+        for column, column_type in additions.items():
+            if column not in columns:
+                connection.exec_driver_sql(
+                    f'ALTER TABLE sent_emails ADD COLUMN "{column}" {column_type}'
+                )
+
+
 with app.app_context():
     db.create_all()
+    ensure_email_history_columns()
     seed_admin()
 
 if __name__ == "__main__":

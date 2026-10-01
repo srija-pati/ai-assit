@@ -10,10 +10,18 @@ import type { SentEmailStatus } from './sentEmailStatus';
 export interface SentEmail {
   id: number;
   recipientEmail: string;
+  /** @nullable */
+  senderName?: string | null;
+  /** @nullable */
+  senderEmail?: string | null;
   subject: string;
   body?: string;
   /** @nullable */
   draftId?: number | null;
+  /** @nullable */
+  documentId?: number | null;
   sentAt: string;
   status: SentEmailStatus;
+  /** @nullable */
+  resendMessageId?: string | null;
 }

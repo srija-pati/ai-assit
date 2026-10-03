@@ -307,7 +307,7 @@ export interface SentEmail {
   sentAt: string;
   status: SentEmailStatus;
   /** @nullable */
-  resendMessageId?: string | null;
+  messageId?: string | null;
 }
 
 export interface AdminLog {

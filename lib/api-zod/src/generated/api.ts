@@ -405,7 +405,7 @@ export const SendEmailResponse = zod.object({
   "documentId": zod.number().nullish(),
   "sentAt": zod.string(),
   "status": zod.enum(['sent', 'failed', 'pending']),
-  "resendMessageId": zod.string().nullish()
+  "messageId": zod.string().nullish()
 })
 
 
@@ -423,7 +423,7 @@ export const ListEmailsResponseItem = zod.object({
   "documentId": zod.number().nullish(),
   "sentAt": zod.string(),
   "status": zod.enum(['sent', 'failed', 'pending']),
-  "resendMessageId": zod.string().nullish()
+  "messageId": zod.string().nullish()
 })
 export const ListEmailsResponse = zod.array(ListEmailsResponseItem)
 

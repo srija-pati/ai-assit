@@ -6,19 +6,21 @@ import datetime
 import html
 import json
 import math
+import mimetypes
 import re
 import shutil
+import smtplib
+import ssl
 import subprocess
 import threading
 import tempfile
 import time
 import unicodedata
 import zipfile
-from socket import timeout as SocketTimeout
-from email.utils import formataddr
+from email.message import EmailMessage
+from email.utils import formataddr, make_msgid
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
-from urllib.error import HTTPError, URLError
 from xml.etree import ElementTree
 from werkzeug.utils import secure_filename
 
@@ -131,7 +133,7 @@ class SentEmail(db.Model):
     subject         = db.Column(db.String(500), nullable=False)
     body            = db.Column(db.Text, nullable=False)
     draft_id        = db.Column(db.Integer, db.ForeignKey("generated_drafts.id"))
-    resend_message_id = db.Column(db.String(200))
+    message_id      = db.Column(db.String(200))
     status          = db.Column(db.String(50), default="sent")
     sent_at         = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     user_id         = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
@@ -616,7 +618,7 @@ def build_pdf(title: str, content: str) -> bytes:
     return buf.getvalue()
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Email helper (Resend)
+# Email helpers (Gmail SMTP)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 MAX_EMAIL_ATTACHMENT_BYTES = 5 * 1024 * 1024
@@ -724,68 +726,145 @@ def validate_email_attachment(attachment: dict) -> dict:
     }
 
 
-def send_email_resend(
+def load_smtp_configuration() -> dict:
+    host = os.environ.get("SMTP_HOST", "").strip()
+    raw_port = os.environ.get("SMTP_PORT", "").strip()
+    username = os.environ.get("SMTP_USERNAME", "").strip()
+    password = "".join(os.environ.get("SMTP_PASSWORD", "").split())
+    from_email = os.environ.get("SMTP_FROM_EMAIL", "").strip()
+    from_name = os.environ.get("SMTP_FROM_NAME", "").strip()
+
+    try:
+        port = int(raw_port)
+    except (TypeError, ValueError):
+        port = 0
+
+    invalid_name = (
+        not from_name
+        or len(from_name) > 100
+        or any(ord(character) < 32 or ord(character) == 127 for character in from_name)
+    )
+    if (
+        not host
+        or "\r" in host
+        or "\n" in host
+        or not 1 <= port <= 65535
+        or not is_valid_email(username)
+        or not password
+        or not is_valid_email(from_email)
+        or invalid_name
+    ):
+        raise EmailConfigurationError(
+            "Email service is not configured. Please contact the administrator."
+        )
+
+    return {
+        "host": host,
+        "port": port,
+        "username": username,
+        "password": password,
+        "from_email": from_email,
+        "from_name": from_name,
+    }
+
+
+def smtp_is_configured() -> bool:
+    try:
+        load_smtp_configuration()
+    except EmailConfigurationError:
+        return False
+    return True
+
+
+def send_email_smtp(
     to: str,
     subject: str,
     body: str,
     attachments: list[dict],
     html_body: str | None = None,
 ) -> str | None:
-    api_key = os.environ.get("RESEND_API_KEY", "").strip()
-    sender_email = os.environ.get("RESEND_FROM_EMAIL", "").strip()
-    sender_name = os.environ.get("RESEND_FROM_NAME", "").strip()
-    if not api_key:
-        raise EmailConfigurationError("Email service is not configured. Please contact the administrator.")
-    if (
-        not sender_email
-        or not is_valid_email(sender_email)
-        or "\r" in sender_email
-        or "\n" in sender_email
-    ):
-        raise EmailConfigurationError("Website email sender is not configured.")
-    if (
-        not sender_name
-        or len(sender_name) > 100
-        or "\r" in sender_name
-        or "\n" in sender_name
-        or any(ord(character) < 32 for character in sender_name)
-    ):
-        raise EmailConfigurationError("Website email sender name is not configured.")
-
-    payload = {
-        "from": formataddr((sender_name, sender_email)),
-        "to": [to],
-        "subject": subject,
-        "text": body,
-    }
+    config = load_smtp_configuration()
+    message = EmailMessage()
+    message["From"] = formataddr((config["from_name"], config["from_email"]))
+    message["To"] = to
+    message["Subject"] = subject
+    message["Message-ID"] = make_msgid()
+    message.set_content(body)
     if html_body:
-        payload["html"] = html_body
+        message.add_alternative(html_body, subtype="html")
+
     if attachments:
-        payload["attachments"] = attachments
+        for attachment in attachments:
+            try:
+                file_bytes = base64.b64decode(attachment["content"], validate=True)
+                filename = attachment["filename"]
+            except (KeyError, TypeError, ValueError):
+                raise EmailProviderError("Unable to send the email. Please try again.", 502)
+            content_type, _ = mimetypes.guess_type(filename)
+            maintype, _, subtype = (content_type or "application/octet-stream").partition("/")
+            message.add_attachment(
+                file_bytes,
+                maintype=maintype,
+                subtype=subtype or "octet-stream",
+                filename=filename,
+            )
 
-    req = Request(
-        "https://api.resend.com/emails",
-        data=json.dumps(payload).encode("utf-8"),
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-            "User-Agent": "LegalGPT/1.0",
-        },
-    )
+    server = None
+    phase = "connect"
     try:
-        with urlopen(req, timeout=20) as response:
-            response_data = json.loads(response.read().decode("utf-8"))
-    except HTTPError as exc:
-        app.logger.warning("Resend rejected email request with HTTP %s", exc.code)
-        raise EmailProviderError("The email provider rejected the message.", 502)
-    except (URLError, SocketTimeout, TimeoutError, OSError) as exc:
-        app.logger.warning("Resend email request failed: %s", type(exc).__name__)
-        raise EmailProviderError("The email provider did not respond in time.", 504)
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        raise EmailProviderError("The email provider returned an invalid response.", 502)
+        server = smtplib.SMTP(config["host"], config["port"], timeout=20)
+        phase = "tls"
+        server.ehlo()
+        server.starttls(context=ssl.create_default_context())
+        server.ehlo()
+        phase = "auth"
+        server.login(config["username"], config["password"])
+        phase = "send"
+        refused_recipients = server.send_message(
+            message,
+            from_addr=config["from_email"],
+            to_addrs=[to],
+        )
+        if refused_recipients:
+            raise smtplib.SMTPRecipientsRefused(refused_recipients)
+    except smtplib.SMTPAuthenticationError:
+        app.logger.warning("SMTP email authentication failed")
+        raise EmailProviderError(
+            "Unable to authenticate with the email service. Please contact the administrator.",
+            502,
+        )
+    except (smtplib.SMTPConnectError, smtplib.SMTPServerDisconnected, ssl.SSLError, TimeoutError, OSError) as exc:
+        app.logger.warning("SMTP email transport failed during %s (%s)", phase, type(exc).__name__)
+        if phase in ("connect", "tls", "auth"):
+            raise EmailProviderError(
+                "Unable to connect to the email service. Please try again later.",
+                503,
+            )
+        raise EmailProviderError("Unable to send the email. Please try again.", 502)
+    except smtplib.SMTPException as exc:
+        app.logger.warning("SMTP email operation failed during %s (%s)", phase, type(exc).__name__)
+        if phase == "connect" or phase == "tls":
+            raise EmailProviderError(
+                "Unable to connect to the email service. Please try again later.",
+                503,
+            )
+        if phase == "auth":
+            raise EmailProviderError(
+                "Unable to authenticate with the email service. Please contact the administrator.",
+                502,
+            )
+        raise EmailProviderError("Unable to send the email. Please try again.", 502)
+    finally:
+        if server is not None:
+            try:
+                server.quit()
+            except Exception:
+                try:
+                    server.close()
+                except Exception:
+                    pass
 
-    return response_data.get("id") if isinstance(response_data, dict) else None
+    return str(message["Message-ID"])
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Routes — Auth
@@ -1144,7 +1223,7 @@ def download_pdf(draft_id):
     )
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# Routes — Email (Resend)
+# Routes — Email
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def log_email_attempt(user_id: int, status: str, recipient: str, subject: str, detail: str = ""):
@@ -1318,7 +1397,7 @@ def send_email():
         return jsonify({"error": "The email could not be recorded. Please try again."}), 500
 
     try:
-        email.resend_message_id = send_email_resend(recipient, subject, text_body, attachments, html_body)
+        email.message_id = send_email_smtp(recipient, subject, text_body, attachments, html_body)
     except EmailConfigurationError as exc:
         email.status = "failed"
         db.session.commit()
@@ -1328,9 +1407,7 @@ def send_email():
         email.status = "failed"
         db.session.commit()
         log_email_attempt(g.user.id, "failed", recipient, subject, str(exc))
-        if exc.status_code == 504:
-            return jsonify({"error": "Unable to send the email. Please try again."}), 504
-        return jsonify({"error": "Unable to send the email. Please try again."}), 502
+        return jsonify({"error": str(exc)}), exc.status_code
 
     email.status = "sent"
     email.sent_at = datetime.datetime.utcnow()
@@ -1348,7 +1425,7 @@ def send_email():
         "documentId": email.draft_id,
         "sentAt": email.sent_at.isoformat(),
         "status": email.status,
-        "resendMessageId": email.resend_message_id,
+        "messageId": email.message_id,
     })
 
 @app.route("/api/emails", methods=["GET"])
@@ -1366,7 +1443,7 @@ def list_emails():
         "documentId": e.draft_id,
         "sentAt": e.sent_at.isoformat(),
         "status": e.status,
-        "resendMessageId": e.resend_message_id,
+        "messageId": e.message_id,
     } for e in emails])
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1690,6 +1767,7 @@ def healthz():
         "llm": "gemini-2.5-flash via LangChain",
         "rag": "ChromaDB",
         "db": "SQLite",
+        "emailConfigured": smtp_is_configured(),
     })
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1710,16 +1788,28 @@ def seed_admin():
 
 
 def ensure_email_history_columns():
-    """Add email audit fields to existing SQLite databases without dropping data."""
+    """Add or normalize email audit fields without dropping existing history."""
     additions = {
         "sender_name": "VARCHAR(200)",
         "sender_email": "VARCHAR(254)",
-        "resend_message_id": "VARCHAR(200)",
+        "message_id": "VARCHAR(200)",
     }
     with db.engine.begin() as connection:
         columns = {
             row[1] for row in connection.exec_driver_sql("PRAGMA table_info(sent_emails)").fetchall()
         }
+        if "message_id" not in columns:
+            legacy_message_columns = [
+                column for column in columns
+                if column.endswith("_message_id")
+            ]
+            if len(legacy_message_columns) == 1:
+                legacy_column = legacy_message_columns[0].replace('"', '""')
+                connection.exec_driver_sql(
+                    f'ALTER TABLE sent_emails RENAME COLUMN "{legacy_column}" TO "message_id"'
+                )
+                columns.remove(legacy_message_columns[0])
+                columns.add("message_id")
         for column, column_type in additions.items():
             if column not in columns:
                 connection.exec_driver_sql(

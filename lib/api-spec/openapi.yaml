@@ -439,11 +439,11 @@ paths:
         "413":
           description: Attachment is too large
         "502":
-          description: Email provider rejected the request
+          description: SMTP authentication or sending failed
         "503":
-          description: Email sender is not configured
+          description: SMTP configuration is missing or the connection failed
         "504":
-          description: Email provider timed out
+          description: SMTP connection timed out
 
   /emails:
     get:
@@ -937,7 +937,7 @@ components:
         status:
           type: string
           enum: [sent, failed, pending]
-        resendMessageId:
+        messageId:
           type: ["string", "null"]
 
     AdminStats:

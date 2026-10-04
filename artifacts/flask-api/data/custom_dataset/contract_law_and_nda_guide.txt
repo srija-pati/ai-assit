@@ -1,0 +1,17 @@
+INDIAN CONTRACT ACT 1872 & NON-DISCLOSURE AGREEMENT (NDA) GUIDELINES
+
+1. ESSENTIAL ELEMENTS OF A VALID CONTRACT (SECTION 10)
+All agreements are contracts if they are made by the free consent of parties competent to contract, for a lawful consideration and with a lawful object, and are not hereby expressly declared to be void.
+- Capacity to Contract (Section 11): Every person is competent to contract who is of the age of majority according to the law to which he is subject, and who is of sound mind and is not disqualified from contracting by any law.
+- Free Consent (Section 14): Consent is said to be free when it is not caused by coercion, undue influence, fraud, misrepresentation, or mistake.
+
+2. NON-DISCLOSURE AGREEMENTS (NDAs)
+A Non-Disclosure Agreement is a legally binding contract establishing a confidential relationship. The party agreeing to make sensitive information available understands that the information will not be shared with unauthorized third parties.
+Key Components of a Standard NDA:
+- Definition of Confidential Information: Specifies what technical, financial, or business data is covered.
+- Exclusions from Confidentiality: Publicly available information, information already known prior to disclosure, or required to be disclosed by law.
+- Term & Duration: Standard duration ranges from 2 to 5 years from the date of execution.
+- Governing Law & Jurisdiction: Specifies courts having jurisdiction over disputes (e.g., High Court of Delhi or Telangana).
+
+3. BREACH OF CONTRACT & DAMAGES (SECTION 73)
+When a contract has been broken, the party who suffers by such breach is entitled to receive, from the party who has broken the contract, compensation for any loss or damage caused to him thereby, which naturally arose in the usual course of things from such breach, or which the parties knew, when they made the contract, to be likely to result from the breach of it.

@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useToast } from "@/hooks/use-toast";
-import { Send, Bot, User, Loader2, Sparkles, FileText, Info } from "lucide-react";
+import { Send, Bot, User, Loader2, Sparkles, FileText, Info, Database, Layers } from "lucide-react";
 
 export default function ChatPage() {
   const [location] = useLocation();
@@ -22,6 +22,7 @@ export default function ChatPage() {
   const initialDocId = searchParams.get('docId') ? parseInt(searchParams.get('docId')!) : null;
 
   const [documentId, setDocumentId] = useState<number | null>(initialDocId);
+  const [sourceSelector, setSourceSelector] = useState<string>("auto");
   const [message, setMessage] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
@@ -41,8 +42,9 @@ export default function ChatPage() {
   const handleSend = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!message.trim()) return;
-    if (!documentId) {
-      toast({ title: "Select a document", description: "Please select a document context for the AI.", variant: "destructive" });
+
+    if (sourceSelector === "uploaded" && !documentId) {
+      toast({ title: "Select a document", description: "Please select a document context when using Uploaded Documents source.", variant: "destructive" });
       return;
     }
 
@@ -50,29 +52,24 @@ export default function ChatPage() {
     setMessage("");
 
     sendMutation.mutate(
-      { data: { message: currentMessage, documentId } },
+      { data: { message: currentMessage, documentId, sourceSelector } as any },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getGetChatHistoryQueryKey() });
         },
         onError: () => {
           toast({ title: "Message failed", description: "Could not send message to AI.", variant: "destructive" });
-          setMessage(currentMessage); // restore
+          setMessage(currentMessage);
         }
       }
     );
   };
 
   const sendQuickPrompt = (prompt: string) => {
-    if (!documentId) {
-      toast({ title: "Select a document", description: "Please select a document context first.", variant: "destructive" });
-      return;
-    }
     setMessage(prompt);
-    // Allow state to update before sending
     setTimeout(() => {
       sendMutation.mutate(
-        { data: { message: prompt, documentId } },
+        { data: { message: prompt, documentId, sourceSelector } as any },
         {
           onSuccess: () => queryClient.invalidateQueries({ queryKey: getGetChatHistoryQueryKey() }),
           onError: () => toast({ title: "Message failed", description: "Could not send message to AI.", variant: "destructive" })
@@ -83,57 +80,77 @@ export default function ChatPage() {
 
   const processedDocs = documents.filter(d => d.status === 'processed');
 
-  // Filter history to only show messages for the currently selected document
+  // Filter history to show relevant conversation or all
   const filteredHistory = documentId
-    ? history.filter(m => m.documentId === documentId)
-    : [];
+    ? history.filter(m => m.documentId === documentId || !m.documentId)
+    : history;
 
   const quickPrompts = [
     "Summarize this document",
-    "What are the key clauses?",
-    "Find risk points",
-    "Explain in simple language",
+    "What are the key clauses and terms?",
+    "Identify any potential legal risks",
+    "Explain in simple plain language",
+    "What is the applicable legal provision?"
   ];
 
   return (
     <div className="h-[calc(100vh-8rem)] flex flex-col max-w-6xl mx-auto gap-4">
       <div>
         <h1 className="text-3xl font-serif font-bold text-foreground">AI Legal Assistant</h1>
-        <p className="text-muted-foreground">Ask questions, get summaries, and analyze your documents.</p>
+        <p className="text-muted-foreground">Ask questions, query legal knowledge bases, and analyze your documents.</p>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-4 flex-1 min-h-0">
-        {/* Sidebar / Context Selection */}
+        {/* Sidebar / Source & Context Selection */}
         <div className="lg:w-80 flex flex-col gap-4">
           <Card className="flex-shrink-0">
-            <CardHeader className="pb-4">
-              <CardTitle className="text-base">Document Context</CardTitle>
-              <CardDescription>Select a document for the AI to analyze.</CardDescription>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <Database className="w-4 h-4 text-primary" /> Knowledge Source
+              </CardTitle>
+              <CardDescription>Select vector search target.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <Select 
-                value={documentId?.toString() || ""} 
-                onValueChange={(val) => setDocumentId(parseInt(val))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a document..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {processedDocs.map(doc => (
-                    <SelectItem key={doc.id} value={doc.id.toString()}>
-                      {doc.name}
-                    </SelectItem>
-                  ))}
-                  {processedDocs.length === 0 && (
-                    <SelectItem value="none" disabled>No processed documents</SelectItem>
-                  )}
-                </SelectContent>
-              </Select>
+            <CardContent className="space-y-3">
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Source Selector</label>
+                <Select value={sourceSelector} onValueChange={setSourceSelector}>
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Knowledge Source" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Auto (Smart RAG)</SelectItem>
+                    <SelectItem value="uploaded">Uploaded Documents</SelectItem>
+                    <SelectItem value="knowledge_base">Legal Knowledge Base</SelectItem>
+                    <SelectItem value="custom_dataset">Custom Dataset</SelectItem>
+                    <SelectItem value="all">All Sources</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-muted-foreground mb-1 block">Document Context (Optional)</label>
+                <Select 
+                  value={documentId?.toString() || "all_docs"} 
+                  onValueChange={(val) => setDocumentId(val === "all_docs" ? null : parseInt(val))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="All documents / None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all_docs">General / All Documents</SelectItem>
+                    {processedDocs.map(doc => (
+                      <SelectItem key={doc.id} value={doc.id.toString()}>
+                        {doc.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </CardContent>
           </Card>
 
           <Card className="flex-1 flex flex-col min-h-0 overflow-hidden">
-            <CardHeader className="pb-4">
+            <CardHeader className="pb-3">
               <CardTitle className="text-base flex items-center gap-2">
                 <Sparkles className="w-4 h-4 text-accent" /> Quick Prompts
               </CardTitle>
@@ -144,9 +161,9 @@ export default function ChatPage() {
                   <Button 
                     key={i} 
                     variant="outline" 
-                    className="justify-start h-auto py-3 text-sm font-normal text-left whitespace-normal leading-tight hover:border-primary/50 hover:bg-primary/5"
+                    className="justify-start h-auto py-2.5 text-xs font-normal text-left whitespace-normal leading-tight hover:border-primary/50 hover:bg-primary/5"
                     onClick={() => sendQuickPrompt(prompt)}
-                    disabled={!documentId || sendMutation.isPending}
+                    disabled={sendMutation.isPending}
                   >
                     {prompt}
                   </Button>
@@ -168,11 +185,11 @@ export default function ChatPage() {
                 <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mb-4">
                   <Bot className="w-8 h-8 text-primary" />
                 </div>
-                <h3 className="font-semibold text-foreground text-lg">How can I help you today?</h3>
+                <h3 className="font-semibold text-foreground text-lg">How can I help you with legal analysis today?</h3>
                 <p className="max-w-sm mt-2 text-sm">
                   {documentId
-                    ? "Ask me anything about this document — summaries, clauses, risks, or plain-language explanations."
-                    : "Select a document context from the sidebar and ask me anything about it."}
+                    ? "Ask me anything about this document — summaries, clauses, risks, or citations."
+                    : "Ask any legal question or select a document context from the sidebar to begin."}
                 </p>
               </div>
             ) : (
@@ -184,7 +201,7 @@ export default function ChatPage() {
                     }`}>
                       {msg.role === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
                     </div>
-                    <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[80%]`}>
+                    <div className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'} max-w-[85%]`}>
                       <div className={`p-4 rounded-lg text-sm leading-relaxed ${
                         msg.role === 'user' 
                           ? 'bg-primary text-primary-foreground rounded-tr-none' 
@@ -194,8 +211,8 @@ export default function ChatPage() {
                       </div>
                       
                       {msg.sources && msg.role === 'assistant' && (
-                        <div className="mt-2 p-3 bg-secondary/50 border rounded-md text-xs w-full">
-                          <div className="flex items-center gap-1.5 font-medium text-foreground mb-1.5">
+                        <div className="mt-2 p-2.5 bg-secondary/50 border rounded-md text-xs w-full">
+                          <div className="flex items-center gap-1.5 font-medium text-foreground mb-1">
                             <Info className="w-3.5 h-3.5" /> Source Context
                           </div>
                           <p className="text-muted-foreground line-clamp-2" title={msg.sources}>{msg.sources}</p>
@@ -226,16 +243,18 @@ export default function ChatPage() {
               <Input
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                placeholder={documentId ? "Ask a question about the document..." : "Select a document to start chatting..."}
-                disabled={!documentId || sendMutation.isPending}
+                placeholder="Ask a legal question or query your documents..."
+                disabled={sendMutation.isPending}
                 className="flex-1"
               />
-              <Button type="submit" disabled={!message.trim() || !documentId || sendMutation.isPending}>
+              <Button type="submit" disabled={!message.trim() || sendMutation.isPending}>
                 <Send className="w-4 h-4" />
               </Button>
             </form>
             <div className="text-center mt-2">
-              <span className="text-[10px] text-muted-foreground">LegalGPT can make mistakes. Verify important information.</span>
+              <span className="text-[11px] text-muted-foreground">
+                LegalGPT provides general legal information and document analysis for informational purposes. It does not replace advice from a qualified legal professional.
+              </span>
             </div>
           </div>
         </Card>

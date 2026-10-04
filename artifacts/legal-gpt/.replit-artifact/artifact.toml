@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "LegalGPT"
+version = "1.0.0"
+id = "artifacts/legal-gpt"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19852
+
+[services.development]
+run = "pnpm --filter @workspace/legal-gpt run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/legal-gpt", "run", "build" ]
+publicDir = "artifacts/legal-gpt/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19852"
+BASE_PATH = "/"
